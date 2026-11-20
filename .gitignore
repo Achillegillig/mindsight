@@ -221,3 +221,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# MindSight — fichiers de test locaux
+/.env.local
+/test-results.jsonl
+/mindsight-demo.html
