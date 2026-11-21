@@ -35,9 +35,12 @@ La clé reste côté serveur. Le serveur envoie le préprompt et l’historique
 
 Le modèle par défaut est `deepseek/deepseek-v4-flash`. Pour le changer,
 ajouter `--model fournisseur/modèle` à la commande de démarrage.
-Modifier la clé `system_prompt` dans `app/prompts.json` pour
-ajuster le préprompt. Le serveur le relit à chaque message. La question
-d’ouverture est chargée au démarrage.
+`app/prompts.json` regroupe les textes envoyés à DeepSeek. Le bloc
+`conversation` contient les questions, la clôture et les relances. À
+chaque relance, le serveur relit `conversation.followup_prompts` et
+assemble `common` avec `detail` ou `experience`. Les questions fixes et
+les consignes `extraction.observe` et `extraction.interpret` sont lues
+au démarrage. Pour les modifier, redémarrer MindSight.
 
 ## Écouter les questions
 
@@ -68,18 +71,23 @@ Le navigateur ouvre une session avec `POST /api/conversation/session`, puis
 envoie l’historique, l’identifiant de session et un identifiant d’envoi
 à `POST /api/conversation/turn`. Le serveur attend les observations du tour
 pour décider de la suite. Il pose toujours les trois questions fixes.
-Un ressenti personnel clair est recherché séparément pour chaque question.
-Tant qu’il manque, le serveur peut relancer deux fois sur la question en
-cours. Au premier ressenti clair, après deux relances ou si la personne
-demande de passer, le serveur avance. Après la dernière question, avancer
-signifie terminer avec `done: true`. En cas d’échec de l’observation,
-une relance préparée est utilisée si le budget le permet. Le mode simulé
-applique le même plafond avec des relances préparées. Un renvoi avec le même identifiant et
+Avant de relancer, le serveur cherche un ressenti personnel clair ou un
+indice de trait validé sur le tour. Si l’un des deux est présent, il avance.
+Si les deux manquent, il peut relancer jusqu’à deux fois par question.
+Une demande de passer fait aussi avancer. Après la dernière question,
+avancer signifie terminer avec `done: true`. Le mode simulé utilise le
+même plafond avec des relances préparées.
+
+La première relance approfondit un détail de la dernière réponse. La
+seconde voit aussi la première relance et sa réponse. Elle peut inviter à
+raconter une situation vécue ou préciser une action déjà racontée. Un renvoi avec le même identifiant et
 le même historique réutilise le résultat du premier envoi.
 
 L’analyste Haystack relève les observations et contrôle leurs citations.
-Pour le chat, l’interprétation selon `app/dimensions.yaml` réutilise ensuite
-ces observations en arrière-plan, y compris au dernier tour. Les citations et leurs positions
+L’interprétation selon `app/dimensions.yaml` réutilise ces observations.
+Le serveur attend son résultat uniquement quand il pourrait éviter une
+relance. Dans les autres cas, l’interprétation continue en arrière-plan,
+y compris au dernier tour. Les citations et leurs positions
 sont calculées par rapport à la réponse validée par le serveur. Les clients
 qui transmettent seulement l’historique à `/api/conversation/turn` reçoivent
 la prochaine question et l’extraction du tour dans le même JSON.

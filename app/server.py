@@ -4,7 +4,7 @@ import json
 import logging
 import os
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -14,11 +14,12 @@ from uuid import uuid4
 
 from .azure_speech import SpeechError
 from .dialogue import (
-    CLOSING, DIRECTORY, OPENING, QUESTIONS, PromptError, next_step,
-    read_system_prompt, validate_messages,
+    CLOSING, FOLLOWUP_STEPS, OPENING, QUESTIONS, PromptError, next_step,
+    read_followup_prompt, validate_messages,
 )
 from .extraction import ExtractionError, extract_turn, observe_turn
 from .openrouter import OpenRouterError, generate_reply
+from .prompt_config import DIRECTORY
 from .quantification import quantify_dimensions, scores_on_ten
 
 STATIC = {
@@ -73,6 +74,7 @@ class Session:
     dialogue_lock: Lock = field(default_factory=Lock)
     state_lock: Lock = field(default_factory=Lock)
     draining: bool = False
+    analysis_job: Future | None = None
     finished_turn: int | None = None
     snapshot: dict = field(default_factory=dict)
     reasoning_turns: list = field(default_factory=list)
@@ -167,13 +169,15 @@ class ConversationService:
             LOGGER.error("Erreur interne durant l’analyse d’un tour.")
         return None
 
-    def reply(self, messages, observations):
-        has_feeling = bool(observations and observations.get("expressed_feelings"))
-        step, reply = next_step(messages, has_feeling=has_feeling)
-        if step == "followup" and self.model and observations is not None:
-            prompt = read_system_prompt()
+    def reply(self, messages, extraction):
+        has_evidence = bool(extraction and (extraction.get("expressed_feelings") or extraction.get("dimensions")))
+        step, reply = next_step(messages, has_evidence=has_evidence)
+        if step in FOLLOWUP_STEPS and self.model and extraction is not None:
+            prompt = read_followup_prompt(step)
+            # The second follow-up also sees the first exchange of this question.
+            context = messages[-4:] if step == "experience" else messages[-2:]
             try:
-                generated = self.dialogue(self.api_key, self.model, prompt, messages[-2:])
+                generated = self.dialogue(self.api_key, self.model, prompt, context)
                 previous_questions = {item["content"] for item in messages[::2]}
                 if (generated not in previous_questions and generated not in QUESTIONS
                         and generated.endswith("?") and generated.count("?") == 1
@@ -235,7 +239,17 @@ class ConversationService:
                 raise TurnConflict("Cette conversation est terminée.")
 
             observations = self.observe(messages) if self.model else None
-            reply, done = self.reply(messages, observations)
+            extraction = observations
+            interpret_later = observations is not None
+            if observations and observations["observations"]:
+                step, _ = next_step(messages, has_evidence=bool(observations["expressed_feelings"]))
+                if step in FOLLOWUP_STEPS:
+                    # Earlier turns must finish before we pass their episodes to the model.
+                    if session.analysis_job is not None:
+                        session.analysis_job.result()
+                    extraction = self.analyze(messages, self.known_episodes(session), observed=observations)
+                    interpret_later = False
+            reply, done = self.reply(messages, extraction)
             session.history = [*messages, {"role": "assistant", "content": reply}]
             turn = len(messages) // 2
             status = "pending" if self.model else "simulated"
@@ -245,10 +259,10 @@ class ConversationService:
                     session.finished_turn = turn
                 session.snapshot.update(latest_turn=turn, analysis_status=status)
                 if self.model:
-                    session.queue.append((turn, messages, reply, done, observations))
+                    session.queue.append((turn, messages, reply, done, extraction, interpret_later))
                     if not session.draining:
                         session.draining = True
-                        self.executor.submit(self.drain_session, session)
+                        session.analysis_job = self.executor.submit(self.drain_session, session)
                 else:
                     session.snapshot.update(through_turn=turn, revision=session.snapshot["revision"] + 1)
                     snapshot = session.snapshot.copy()
@@ -257,15 +271,23 @@ class ConversationService:
                 self.record(messages, result, snapshot=snapshot)
             return result
 
+    @staticmethod
+    def known_episodes(session):
+        with session.state_lock:
+            return [
+                {"id": key, "label": label}
+                for key, label in list(session.episodes.items())[-20:]
+            ]
+
     def drain_session(self, session):
         while True:
             with session.state_lock:
                 if not session.queue:
                     session.draining = False
                     return
-                turn, messages, reply, done, observations = session.queue.popleft()
-                known = [{"id": key, "label": label} for key, label in list(session.episodes.items())[-20:]]
-            extraction = self.analyze(messages, known, observed=observations) if observations is not None else None
+                turn, messages, reply, done, extraction, interpret_later = session.queue.popleft()
+            if interpret_later:
+                extraction = self.analyze(messages, self.known_episodes(session), observed=extraction)
             links = extraction["dimensions"] if extraction is not None else None
             status = analysis_status(extraction)
             with session.state_lock:

@@ -72,15 +72,15 @@ class FixtureOpenRouter(BaseHTTPRequestHandler):
         payload = json.loads(request["messages"][-1]["content"])
         answer = payload["answer"]
         self.requests.append(payload)
-        if "observations" in payload and answer == "Je me sentais capable de porter le projet.":
+        if "observations" in payload and answer == "Je me sentais capable de porter le projet et ça me rassurait.":
             self.gate.wait(8)
         if "observations" not in payload:
             data = {"observations": [{
                 "label": "Épisode", "quote": answer,
-                "kind": "ressenti" if "soulagé" in answer or "J’ai peur" in answer else "action",
+                "kind": "ressenti" if "soulagé" in answer or "rassurait" in answer else "action",
                 "subject": "participant", "mode": "vecu",
             }]}
-        elif answer == "J’ai peur. Échec de l’interprétation.":
+        elif answer == "Échec de l’interprétation.":
             data = {"unexpected": []}
         else:
             replay = answer.startswith("Dans le même projet")
@@ -201,17 +201,16 @@ class LiveFlowTests(unittest.TestCase):
             self.assertEqual({entry["session_id"] for entry in entries}, {snapshot["session_id"]})
             self.assertEqual([entry["quantification"]["revision"] for entry in entries], [1, 2, 3, 4, 5])
             first = entries[0]
-            self.assertEqual(first["extraction"]["observations"][0]["quote"], "Je me sentais capable de porter le projet.")
+            self.assertEqual(first["extraction"]["observations"][0]["quote"], "Je me sentais capable de porter le projet et ça me rassurait.")
             self.assertEqual(first["extraction"]["dimensions"][0]["dimension_id"], "confiance_en_soi")
             self.assertEqual(first["quantification"]["scope"], "session")
             confidence = next(item for item in first["quantification"]["dimensions"]
                               if item["id"] == "confiance_en_soi")
             self.assertEqual(confidence["score"], 4)
             self.assertEqual(confidence["source_refs"], ["t1:o1"])
-            last = entries[-1]
-            self.assertEqual(last["analysis_status"], "partial")
-            self.assertIsNone(last["extraction"]["dimensions"])
-            self.assertEqual(last["quantification"]["dimensions"], snapshot["dimensions"])
+            self.assertEqual(entries[-2]["analysis_status"], "partial")
+            self.assertIsNone(entries[-2]["extraction"]["dimensions"])
+            self.assertEqual(entries[-1]["quantification"]["dimensions"], snapshot["dimensions"])
 
     def test_each_question_requires_its_own_feeling(self):
         def observe(*args, **kwargs):
@@ -252,6 +251,33 @@ class LiveFlowTests(unittest.TestCase):
                     *history, {"role": "user", "content": "Encore une réponse."},
                 ])
             self.assertEqual(wait_for_turn(service, session_id, 7)["analysis_status"], "ready")
+
+    def test_validated_trait_prevents_a_followup_without_repeating_analysis(self):
+        answer = "Un grain de sable qui sert de refuge aux pétoncles."
+        observation = {
+            "observations": [{"id": "o1", "quote": answer}],
+            "expressed_feelings": [],
+            "dimensions": [],
+        }
+        extraction = {**observation, "dimensions": [{
+            "dimension_id": "creativite", "strength": "indirect", "observation_ids": ["o1"],
+            "episode_ref": "new:refuge", "episode_label": "Le refuge des pétoncles",
+        }]}
+        with patch("app.server.read_followup_prompt") as relaunch, ConversationService(
+            load_catalog(), model="fixture",
+            observer=lambda *args, **kwargs: observation,
+        ) as service:
+            with patch.object(service, "extractor", return_value=extraction) as interpret:
+                session = service.create_session()
+                result = service.process_session_turn(
+                    session, "first", [OPENING, {"role": "user", "content": answer}],
+                )
+                self.assertEqual(result["reply"], QUESTIONS[1])
+                snapshot = wait_for_turn(service, session, 1)
+                scores = {item["id"]: item["score"] for item in snapshot["dimensions"]}
+                self.assertEqual(scores["creativite"], 2)
+                interpret.assert_called_once()
+                relaunch.assert_not_called()
 
     def test_final_scores_wait_for_the_last_analysis_and_cover_the_catalog(self):
         finish_analysis = Event()
@@ -348,32 +374,32 @@ class LiveFlowTests(unittest.TestCase):
             return payload, result
 
         try:
-            first, result = send("Je me sentais capable de porter le projet.", "request-1")
+            first, result = send("Je me sentais capable de porter le projet et ça me rassurait.", "request-1")
             self.assertEqual(result["analysis_status"], "pending")
             self.assertEqual(post(turn_url, first), result)
             self.assertEqual(service.get_snapshot(session_id)["revision"], 0)
         finally:
             release.set()
         self.assertEqual(wait_for_turn(service, session_id, 1)["analysis_status"], "ready")
-        send("Dans le même projet, je savais que je pouvais mener le travail à terme. Je suis soulagé.", "request-2")
-        send("Dans un atelier, je me suis senti capable de présenter le résultat.", "request-3")
-        send("Sur un autre projet, je doutais de mes capacités, mais je suis soulagé.", "request-4")
-        send("J’ai peur. Échec de l’interprétation.", "request-5")
+        send("Sur un autre projet, je doutais de mes capacités.", "request-2")
+        send("Dans le même projet, je savais que je pouvais mener le travail à terme. Je suis soulagé.", "request-3")
+        send("Échec de l’interprétation.", "request-4")
+        send("Dans un atelier, je me suis senti capable de présenter le résultat. Je suis soulagé.", "request-5")
         snapshot = wait_for_turn(service, session_id, 5)
         confidence = next(item for item in snapshot["dimensions"] if item["id"] == "confiance_en_soi")
         self.assertEqual(snapshot["revision"], 5)
-        self.assertEqual(snapshot["analysis_status"], "partial")
+        self.assertEqual(snapshot["analysis_status"], "ready")
         self.assertEqual(confidence["score"], 6)
         self.assertNotIn("contre_appui", confidence)
         self.assertEqual(confidence["episode_count"], 2)
-        self.assertEqual(snapshot["observations"]["t1:o1"]["quote"], "Je me sentais capable de porter le projet.")
+        self.assertEqual(snapshot["observations"]["t1:o1"]["quote"], "Je me sentais capable de porter le projet et ça me rassurait.")
         self.assertEqual(len(provider_requests), 10)
 
         with urlopen(chat_url + f"/api/conversation/session/{session_id}/reasoning", timeout=5) as response:
             trace = json.load(response)
-        self.assertEqual(trace["analysis_status"], "partial")
+        self.assertEqual(trace["analysis_status"], "ready")
         self.assertEqual([item["turn"] for item in trace["turns"]], [1, 2, 3, 4, 5])
-        self.assertEqual(trace["turns"][0]["episode_ids"], trace["turns"][1]["episode_ids"])
+        self.assertEqual(trace["turns"][0]["episode_ids"], trace["turns"][2]["episode_ids"])
         self.assertEqual(trace["turns"][0]["extraction"]["trace"]["observation_candidates"], 1)
         attribution = next(item for item in trace["dimensions"] if item["id"] == "confiance_en_soi")
         self.assertEqual(attribution["family"], "Rapport à soi")

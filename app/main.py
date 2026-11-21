@@ -11,8 +11,9 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from .azure_speech import DEFAULT_STYLE, DEFAULT_VOICE, synthesize
-from .dialogue import CONFIG, DIRECTORY, OPENING, SKIP_PATTERN
+from .dialogue import CONFIG, OPENING, SKIP_PATTERN
 from .openrouter import DEFAULT_MODEL
+from .prompt_config import DIRECTORY
 
 
 def config_value(name):
