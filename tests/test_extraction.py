@@ -29,8 +29,8 @@ def observe(quote, **fields):
 
 def link(**fields):
     return {
-        "dimension_id": "confiance_en_soi", "reading": "La personne exprime sa confiance dans sa capacité à porter le projet.",
-        "observation_ids": ["o1"], "strength": "direct",
+        "dimension_id": "analytique", "reading": "La personne compare les options selon un critère de coût.",
+        "observation_ids": ["o1"], "strength": "direct", "intensity": "frappant",
         "episode_ref": "new:projet", "episode_label": "Projet collectif", **fields,
     }
 
@@ -50,11 +50,11 @@ class ExtractionTests(unittest.TestCase):
                             catalog=self.catalog, include_trace=True, generator_factory=factory)
 
     def test_two_passes_anchor_and_validate_links(self):
-        answer = "Un galet. Je me sentais capable de porter le projet. Mon ami était inquiet."
+        answer = "Un galet. J’ai comparé les délais et les coûts de chaque option avant de trancher. Mon ami était inquiet."
         result = self.analyze(
             answer,
             json.dumps({"observations": [
-                observe("Je me sentais capable de porter le projet"),
+                observe("J’ai comparé les délais et les coûts de chaque option avant de trancher"),
                 observe("Un galet", kind="image", mode="fiction"),
                 observe("Mon ami était inquiet", kind="ressenti", subject="tiers"),
                 observe("Une question absente du récit"),
@@ -63,6 +63,7 @@ class ExtractionTests(unittest.TestCase):
             json.dumps({"dimensions": [
                 link(), link(observation_ids=["o7"]), link(dimension_id="inconnue"),
                 link(observation_ids=["o2"]), link(relation="contre_indice"),
+                link(intensity="extrême"),
             ]}),
         )
         self.assertEqual(len(self.prompts), 2)
@@ -71,7 +72,8 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(result["expressed_feelings"], [])
         self.assertEqual(result["visual_elements"][0]["quote"], "Un galet")
         self.assertEqual(len(result["dimensions"]), 1)
-        self.assertEqual(result["trace"], {"observation_candidates": 5, "interpretation_candidates": 5})
+        self.assertEqual(result["dimensions"][0]["intensity"], "frappant")
+        self.assertEqual(result["trace"], {"observation_candidates": 5, "interpretation_candidates": 6})
         item = result["observations"][0]
         self.assertEqual(answer[item["start"]:item["end"]], item["quote"])
 
@@ -91,14 +93,24 @@ class ExtractionTests(unittest.TestCase):
             ]}),
         )
         self.assertEqual(
-            [(item["dimension_id"], item["strength"]) for item in result["dimensions"]],
-            [("humour", "indirect")],
+            [(item["dimension_id"], item["strength"], item["intensity"]) for item in result["dimensions"]],
+            [("humour", "indirect", "frappant")],
         )
 
     def test_empty_observations_skip_model_and_keep_empty_dimensions(self):
         result = self.analyze("oui, oui", json.dumps({"observations": [observe("oui"), observe("Oui", kind="")]}))
         self.assertEqual(result["dimensions"], [])
         self.assertEqual(len(self.prompts), 1)
+
+    def test_hypothetical_reasoning_can_support_only_the_analytical_criterion(self):
+        answer = "Je comparerais le délai à la gravité du défaut avant de trancher."
+        result = self.analyze(
+            answer,
+            json.dumps({"observations": [observe(answer, mode="hypothetique", kind="raisonnement")]}),
+            json.dumps({"dimensions": [link(intensity="net"), link(dimension_id="extraversion")]}),
+        )
+        self.assertEqual([(item["dimension_id"], item["intensity"]) for item in result["dimensions"]],
+                         [("analytique", "net")])
 
     def test_failures_distinguish_missing_observations_and_partial_extraction(self):
         answer = "J’ai peur."

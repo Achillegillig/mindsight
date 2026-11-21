@@ -1,88 +1,73 @@
-version: 4
+version: 5
 quantification:
-  weights: {direct: 4, indirect: 2}
+  strategy: contrast
+  weights: {direct: 5, indirect: 2}
 
 dimensions:
+  - id: analytique
+    family: Raisonnement
+    label: Analytique
+    definition: Décompose un problème, compare des options selon des critères ou relie des causes et des conséquences pour justifier une conclusion.
+    allow_hypothetical_reasoning: true
+    exclusions: [Énumération sans mise en relation, Forme géométrique décrite seule]
+    anchors:
+      leger: Donne une seule raison simple à un choix.
+      net: Compare des options en expliquant le critère qui les départage.
+      frappant: Décompose le problème et arbitre entre des contraintes avec un raisonnement explicite.
   - id: enthousiasme
     family: Expression
     label: Enthousiasme
-    definition: Exprime un élan, un plaisir anticipé ou une envie marquée de faire quelque chose.
-    exclusions: [Ponctuation expressive seule, Simple préférence]
-  - id: reveur
-    family: Expression
-    label: Rêveur
-    definition: Développe une rêverie, une possibilité ou un monde imaginé au-delà du point de départ.
-    allow_fiction: true
-    exclusions: [Simple réponse à une question imaginaire, Détail fourni par la question]
-  - id: passionne
-    family: Expression
-    label: Passionné
-    definition: Exprime un attachement soutenu à un sujet ou décrit le temps et l'énergie qu'il y consacre.
-    exclusions: [Enthousiasme ponctuel, Goût déclaré sans autre indication]
-  - id: creativite
-    family: Expression
-    label: Créativité
-    definition: Produit une association originale, transforme la prémisse ou invente un mécanisme inattendu.
-    allow_fiction: true
-    exclusions: [Longueur ou richesse lexicale seule, Reprise d'une idée de la question]
-  - id: bienveillance
-    family: Fonctionnement relationnel
-    label: Bienveillance
-    definition: Exprime une attention au bien d'autrui ou décrit une action destinée à l'aider.
-    exclusions: [Formule de politesse seule, Bienveillance d'un personnage seule]
-  - id: force_de_proposition
-    family: Bonus
-    label: Force de proposition
-    definition: Prend l'initiative d'ajouter une option, d'avancer une solution ou de proposer une suite concrète.
-    exclusions: [Préférence seule, Simple exécution d'une consigne]
-  - id: impulsivite
-    family: Fonctionnement émotionnel
-    label: Impulsivité
-    definition: Décrit une réaction immédiate et peu réfléchie, notamment sous l'effet de la colère.
-    exclusions: [Colère sans réaction impulsive, Agressivité prêtée à un animal ou un personnage]
-  - id: autocritique
-    family: Rapport à soi
-    label: Autocritique
-    definition: Revient sur sa propre décision, son comportement ou une erreur en explicitant ce qu'il remet en question.
-    exclusions: [Correction factuelle seule, Critique attribuée à un tiers]
-  - id: domination
-    family: Fonctionnement relationnel
-    label: Domination
-    definition: Exprime une volonté d'imposer ses décisions aux autres ou décrit avoir limité leur choix pour faire prévaloir le sien.
-    exclusions: [Confiance en soi, Initiative ou désaccord sans contrôle d'autrui]
+    definition: Exprime un élan, un plaisir marqué ou un engagement énergique envers une activité ou une idée.
+    exclusions: [Ponctuation expressive seule, Sujet repris de la question sans élan exprimé]
+    anchors:
+      leger: Exprime un petit plaisir ou un élan perceptible et situé.
+      net: Explique concrètement ce qui lui donne envie de s'investir.
+      frappant: Décrit un élan intense qui entraîne des actions concrètes ou une mobilisation soutenue.
   - id: extraversion
-    family: Fonctionnement relationnel
+    family: Relation aux autres
     label: Extraversion
-    definition: Dit rechercher ou apprécier les interactions sociales, ou décrit une démarche allant dans ce sens.
-    exclusions: [Longueur de la réponse, Aisance verbale seule]
-  - id: introversion
-    family: Fonctionnement relationnel
-    label: Introversion
-    definition: Exprime une préférence pour la solitude ou les petits groupes, ou dit avoir besoin de moments seuls pour retrouver de l'énergie.
-    exclusions: [Réponse brève, Timidité supposée, Absence d'indice d'extraversion]
-  - id: confiance_en_soi
-    family: Rapport à soi
-    label: Confiance en soi
-    definition: Exprime sa confiance dans sa capacité à agir, choisir ou faire face à une situation.
-    exclusions: [Ton catégorique seul, Contrôle exercé sur les autres]
-  - id: manque_de_confiance_en_soi
-    family: Rapport à soi
-    label: Absence de confiance en soi
-    definition: Exprime un doute sur ses propres capacités ou raconte avoir renoncé en pensant ne pas être à la hauteur.
-    exclusions: [Doute sur la situation seule, Hésitation ponctuelle sans mise en cause de soi, Absence d'indice de confiance en soi]
-  - id: analytique
-    family: Fonctionnement intellectuel
-    label: Analytique
-    definition: Décompose une situation, ordonne plusieurs éléments ou compare des options en expliquant ses critères.
-    exclusions: [Énumération sans mise en relation, Forme géométrique décrite seule]
+    definition: Recherche les interactions, prend l'initiative du contact ou dit tirer de l'énergie des échanges sociaux.
+    exclusions: [Longueur de la réponse, Aisance verbale seule, Présence passive dans un groupe]
+    anchors:
+      leger: Exprime un intérêt situé pour aller vers les autres.
+      net: Raconte comment il a pris l'initiative d'un échange.
+      frappant: Décrit une recherche marquée du contact et son rôle actif pour lancer ou animer des interactions.
   - id: humour
     family: Expression
     label: Humour
-    definition: Produit un jeu de mots, une chute, un décalage volontaire ou de l'autodérision.
+    definition: Produit un jeu de mots, une chute, un décalage comique ou de l'autodérision.
     allow_fiction: true
-    exclusions: [Humour contenu dans la question, Rire ou emoji seul]
-  - id: angoisse
-    family: Fonctionnement émotionnel
-    label: Angoisse exprimée
-    definition: Exprime une inquiétude marquée, une tension persistante ou des pensées pénibles qui reviennent.
-    exclusions: [Scène sombre seule, Peur d'un personnage, Diagnostic déduit du texte]
+    exclusions: [Humour repris de la question, Rire ou emoji seul]
+    anchors:
+      leger: Introduit un décalage amusant discret.
+      net: Formule une blague ou une remarque d'autodérision qui se suffit à elle-même.
+      frappant: Développe un ressort comique distinctif avec une chute ou un changement de perspective.
+  - id: torture
+    family: Rapport à soi
+    label: Torturé
+    definition: Exprime un conflit intérieur qui pèse sur le récit, une ambivalence difficile à résoudre ou des pensées pénibles qui reviennent.
+    exclusions: [Diagnostic, Scène sombre seule, Émotion d'un tiers ou d'un personnage, Inquiétude ponctuelle seule]
+    anchors:
+      leger: Décrit une tension intérieure située entre deux envies.
+      net: Explique comment des envies incompatibles ou une pensée récurrente l'affectent.
+      frappant: Développe un conflit intérieur qui revient et pèse sur ses choix ou sa façon de raconter.
+  - id: reveur
+    family: Imagination
+    label: Rêveur
+    definition: Se projette dans un ailleurs et développe une rêverie ou un monde imaginé au-delà du point de départ.
+    allow_fiction: true
+    exclusions: [Simple réponse à une question imaginaire, Détail fourni par la question]
+    anchors:
+      leger: Ajoute une projection imaginaire personnelle.
+      net: Prolonge la projection en une scène ou un ailleurs avec ses propres détails.
+      frappant: Déploie une rêverie immersive qui donne une direction nouvelle au récit.
+  - id: creativite
+    family: Imagination
+    label: Créativité
+    definition: Invente une solution, une image ou un mécanisme original, ou combine des idées de manière inattendue.
+    allow_fiction: true
+    exclusions: [Longueur ou richesse lexicale seule, Reprise d'une idée de la question]
+    anchors:
+      leger: Ajoute une association singulière et précise.
+      net: Combine des éléments inattendus ou propose une solution inhabituelle qui fonctionne dans le récit.
+      frappant: Invente un mécanisme ou une image marquante qui transforme la prémisse.

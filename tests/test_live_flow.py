@@ -86,8 +86,9 @@ class FixtureOpenRouter(BaseHTTPRequestHandler):
             replay = answer.startswith("Dans le même projet")
             episode_ref = payload["known_episodes"][0]["id"] if replay else "new:episode"
             data = {"dimensions": [{
-                "dimension_id": "confiance_en_soi", "reading": "Confiance dans ses capacités exprimée dans cet épisode.",
+                "dimension_id": "analytique", "reading": "La personne compare les options selon des contraintes.",
                 "strength": "indirect" if "atelier" in answer else "direct",
+                "intensity": "leger" if "atelier" in answer else "net",
                 **({"relation": "contre_indice"} if "doutais" in answer else {}),
                 "observation_ids": ["o1"], "episode_ref": episode_ref, "episode_label": answer,
             }]}
@@ -110,11 +111,11 @@ class LiveFlowTests(unittest.TestCase):
         dimensions = [dimension["id"] for dimension in load_catalog().dimensions]
         self.assertEqual([channel["dimension"] for channel in channels], dimensions)
         snapshot = {"dimensions": [
-            {"id": "creativite", "appui": 0.4},
-            {"id": "analytique", "appui": 0.2},
-            {"id": "angoisse", "appui": 0.8},
-            {"id": "impulsivite", "appui": 1.0},
-            {"id": "force_de_proposition", "appui": 0.6},
+            {"id": "creativite", "appui": 0.75, "contre_appui": 0.5},
+            {"id": "analytique", "appui": 0.25},
+            {"id": "enthousiasme", "appui": 0.5},
+            {"id": "humour", "appui": 1.0},
+            {"id": "torture", "appui": 0.8},
             {"id": "extraversion", "appui": None},
         ]}
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as receiver:
@@ -124,12 +125,14 @@ class LiveFlowTests(unittest.TestCase):
                 forward_snapshot(snapshot, channels, osc)
             messages = [OscPacket(receiver.recv(1024)).messages[0].message for _ in channels]
 
-        expected = {
-            "creativite": 4.0, "analytique": 2.0, "angoisse": 8.0,
-            "impulsivite": 10.0, "force_de_proposition": 6.0,
-        }
         self.assertEqual([(message.address, message.params) for message in messages], [
-            (f"/trait/{dimension}", [expected.get(dimension, 0.0)]) for dimension in dimensions
+            ("/trait/analytique", [2.5]),
+            ("/trait/enthousiasme", [5.0]),
+            ("/trait/extraversion", [0.0]),
+            ("/trait/humour", [10.0]),
+            ("/trait/torture", [8.0]),
+            ("/trait/reveur", [0.0]),
+            ("/trait/creativite", [7.5]),
         ])
         self.assertTrue(all(type(message.params[0]) is float for message in messages))
 
@@ -243,12 +246,12 @@ class LiveFlowTests(unittest.TestCase):
             self.assertEqual([entry["quantification"]["revision"] for entry in entries], [1, 2, 3, 4, 5])
             first = entries[0]
             self.assertEqual(first["extraction"]["observations"][0]["quote"], "Je me sentais capable de porter le projet et ça me rassurait.")
-            self.assertEqual(first["extraction"]["dimensions"][0]["dimension_id"], "confiance_en_soi")
+            self.assertEqual(first["extraction"]["dimensions"][0]["dimension_id"], "analytique")
             self.assertEqual(first["quantification"]["scope"], "session")
-            confidence = next(item for item in first["quantification"]["dimensions"]
-                              if item["id"] == "confiance_en_soi")
-            self.assertEqual(confidence["score"], 4)
-            self.assertEqual(confidence["source_refs"], ["t1:o1"])
+            analytical = next(item for item in first["quantification"]["dimensions"]
+                              if item["id"] == "analytique")
+            self.assertEqual(analytical["score"], 5)
+            self.assertEqual(analytical["source_refs"], ["t1:o1"])
             self.assertEqual(entries[-2]["analysis_status"], "partial")
             self.assertIsNone(entries[-2]["extraction"]["dimensions"])
             self.assertEqual(entries[-1]["quantification"]["dimensions"], snapshot["dimensions"])
@@ -331,8 +334,10 @@ class LiveFlowTests(unittest.TestCase):
 
         def interpret(*args, **kwargs):
             finish_analysis.wait(3)
+            known = kwargs["known_episodes"]
             return {**observed, "dimensions": [{
-                "dimension_id": "reveur", "episode_ref": "new:image", "episode_label": "Image",
+                "dimension_id": "reveur", "episode_ref": known[0]["id"] if known else "new:image",
+                "episode_label": "Image",
                 "strength": "indirect", "relation": "appui", "observation_ids": ["o1"],
             }]}
 
@@ -359,7 +364,8 @@ class LiveFlowTests(unittest.TestCase):
             self.assertEqual(result["through_turn"], 3)
             self.assertEqual(len(result["traits"]), len(service.catalog.dimensions))
             scores = {trait["id"]: trait for trait in result["traits"]}
-            self.assertEqual(scores["reveur"]["score"], 6)
+            self.assertEqual(scores["reveur"]["score"], 2)
+            self.assertEqual(scores["reveur"]["episode_count"], 1)
             self.assertEqual(scores["humour"]["score"], 0)
             self.assertEqual(scores["humour"]["status"], "sans_indice")
 
@@ -382,7 +388,7 @@ class LiveFlowTests(unittest.TestCase):
 
     def test_record_without_session_quantifies_the_single_turn(self):
         extraction = {"dimensions": [{
-            "dimension_id": "confiance_en_soi", "relation": "appui", "strength": "direct",
+            "dimension_id": "analytique", "relation": "appui", "strength": "direct",
             "episode_ref": "new:episode", "episode_label": "Réunion", "observation_ids": ["o1"],
         }]}
         with TemporaryDirectory() as directory:
@@ -394,9 +400,9 @@ class LiveFlowTests(unittest.TestCase):
             entry = json.loads(record_path.read_text(encoding="utf-8"))
         self.assertEqual(entry["quantification"]["scope"], "turn")
         self.assertEqual(entry["analysis_status"], "ready")
-        confidence = next(item for item in entry["quantification"]["dimensions"]
-                          if item["id"] == "confiance_en_soi")
-        self.assertEqual(confidence["score"], 4)
+        analytical = next(item for item in entry["quantification"]["dimensions"]
+                          if item["id"] == "analytique")
+        self.assertEqual(analytical["score"], 5)
 
     def exercise_conversation(self, service, chat_url, mcp_url, release, provider_requests):
         session = post(chat_url + "/api/conversation/session", {})
@@ -427,12 +433,12 @@ class LiveFlowTests(unittest.TestCase):
         send("Échec de l’interprétation.", "request-4")
         send("Dans un atelier, je me suis senti capable de présenter le résultat. Je suis soulagé.", "request-5")
         snapshot = wait_for_turn(service, session_id, 5)
-        confidence = next(item for item in snapshot["dimensions"] if item["id"] == "confiance_en_soi")
+        analytical = next(item for item in snapshot["dimensions"] if item["id"] == "analytique")
         self.assertEqual(snapshot["revision"], 5)
         self.assertEqual(snapshot["analysis_status"], "ready")
-        self.assertEqual(confidence["score"], 6)
-        self.assertNotIn("contre_appui", confidence)
-        self.assertEqual(confidence["episode_count"], 2)
+        self.assertEqual(analytical["score"], 6)
+        self.assertNotIn("contre_appui", analytical)
+        self.assertEqual(analytical["episode_count"], 2)
         self.assertEqual(snapshot["observations"]["t1:o1"]["quote"], "Je me sentais capable de porter le projet et ça me rassurait.")
         self.assertEqual(len(provider_requests), 10)
 
@@ -442,10 +448,10 @@ class LiveFlowTests(unittest.TestCase):
         self.assertEqual([item["turn"] for item in trace["turns"]], [1, 2, 3, 4, 5])
         self.assertEqual(trace["turns"][0]["episode_ids"], trace["turns"][2]["episode_ids"])
         self.assertEqual(trace["turns"][0]["extraction"]["trace"]["observation_candidates"], 1)
-        attribution = next(item for item in trace["dimensions"] if item["id"] == "confiance_en_soi")
-        self.assertEqual(attribution["family"], "Rapport à soi")
+        attribution = next(item for item in trace["dimensions"] if item["id"] == "analytique")
+        self.assertEqual(attribution["family"], "Raisonnement")
         self.assertEqual(attribution["calculation"]["total_points"], 6)
-        self.assertEqual(attribution["score"], confidence["score"])
+        self.assertEqual(attribution["score"], analytical["score"])
 
         first["messages"][-1]["content"] = "Une autre réponse"
         with self.assertRaises(HTTPError) as error:
@@ -458,7 +464,7 @@ class LiveFlowTests(unittest.TestCase):
             receiver.bind(("127.0.0.1", 0))
             receiver.settimeout(2)
             channels = [
-                {"dimension": "confiance_en_soi", "signal": "appui", "address": "/ouverture"},
+                {"dimension": "analytique", "signal": "appui", "address": "/ouverture"},
             ]
             with SimpleUDPClient("127.0.0.1", receiver.getsockname()[1]) as osc:
                 asyncio.run(bridge(mcp_url, session_id, channels, osc, once=True))

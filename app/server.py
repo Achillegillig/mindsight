@@ -334,6 +334,7 @@ class ConversationService:
             indices.append({
                 "dimension_id": link["dimension_id"],
                 "strength": link["strength"], "episode_id": episode,
+                **({"intensity": link["intensity"]} if "intensity" in link else {}),
                 "source_refs": [f"t{turn}:{item}" for item in link["observation_ids"]],
             })
         return indices

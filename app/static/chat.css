@@ -36,9 +36,11 @@ header p { margin: 0; }
   background: #f0eee8;
   padding: .75rem 0 max(.75rem, env(safe-area-inset-bottom));
 }
-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem .6rem; align-items: end; }
+form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem .6rem; align-items: stretch; }
 form label { grid-column: 1 / -1; }
-#dictate { grid-column: 1 / -1; background: transparent; border: 1px solid #737b70; color: #294536; }
+.composer-actions { display: grid; grid-auto-rows: 1fr; gap: .4rem; }
+.composer-actions button { justify-self: stretch; border: 1px solid transparent; }
+#dictate { background: transparent; border-color: #737b70; color: #294536; }
 #microphone-level { grid-column: 1 / -1; font-size: .875rem; overflow-wrap: anywhere; }
 #microphone-meter { display: block; width: 100%; height: .75rem; }
 #auto-audio-debug { margin: .25rem 0 0; font-variant-numeric: tabular-nums; }

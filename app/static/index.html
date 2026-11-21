@@ -29,7 +29,7 @@
           <h3>Indices et interprétations par tour</h3>
           <div id="reasoning-turns"></div>
           <h3>État des attributions</h3>
-          <p class="reasoning-note">Les valeurs reflètent les indices recueillis dans cet échange. Le calcul retient l’indice le plus fort de chaque épisode.</p>
+          <p class="reasoning-note">Les notes décrivent les indices exprimés dans cet échange. Une même idée reprise sur plusieurs tours ne renforce pas la note plusieurs fois.</p>
           <div id="reasoning-dimensions"></div>
         </details>
         <div class="composer">
@@ -40,8 +40,10 @@
           <form>
             <label for="answer">Ta réponse</label>
             <textarea id="answer" name="answer" rows="2" maxlength="2000" required></textarea>
-            <button id="send" type="submit" disabled>Envoyer</button>
-            <button id="dictate" type="button" hidden>Dicter</button>
+            <div class="composer-actions">
+              <button id="dictate" type="button" hidden>Dicter</button>
+              <button id="send" type="submit" disabled>Envoyer</button>
+            </div>
             <div id="microphone-level" hidden>
               <span id="microphone-name">Microphone</span>
               <meter id="microphone-meter" min="0" max="1" value="0" aria-label="Niveau du microphone"></meter>

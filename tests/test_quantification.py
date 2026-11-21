@@ -8,43 +8,38 @@ from app.quantification import load_catalog, quantify_dimensions
 class QuantificationTests(unittest.TestCase):
     def test_catalog_lists_the_creative_session_traits(self):
         catalog = load_catalog()
-        self.assertEqual(catalog.version, 4)
-        self.assertEqual({item["id"] for item in catalog.dimensions}, {
-            "enthousiasme", "reveur", "passionne", "creativite", "bienveillance",
-            "force_de_proposition", "impulsivite", "autocritique", "domination",
-            "extraversion", "introversion", "confiance_en_soi",
-            "manque_de_confiance_en_soi", "analytique", "humour", "angoisse",
-        })
-        self.assertEqual(
-            [item["id"] for item in catalog.dimensions if item.get("family") == "Bonus"],
-            ["force_de_proposition"],
-        )
+        self.assertEqual(catalog.version, 5)
+        self.assertEqual([item["id"] for item in catalog.dimensions], [
+            "analytique", "enthousiasme", "extraversion", "humour", "torture",
+            "reveur", "creativite",
+        ])
 
-    def test_scores_advance_once_per_episode_and_cap_at_ten(self):
+    def test_distinct_evidence_changes_scores_without_rewarding_repetition(self):
         catalog = load_catalog()
 
-        def index(episode, strength, ref, **extra):
-            return {"dimension_id": "confiance_en_soi", "episode_id": episode,
-                    "strength": strength, "source_refs": [ref], **extra}
+        def index(episode, intensity, ref, **extra):
+            return {"dimension_id": "analytique", "episode_id": episode, "intensity": intensity,
+                    "strength": "direct", "source_refs": [ref], **extra}
 
         indices = [
-            index("first", "indirect", "t1:o1"),
-            index("first", "direct", "t2:o1"),
-            index("second", "indirect", "t3:o1"),
-            index("third", "direct", "t4:o1", relation="contre_indice"),
-            index("fourth", "direct", "t5:o1"),
-            index("fifth", "direct", "t6:o1"),
+            index("first", "leger", "t1:o1"),
+            index("first", "frappant", "t2:o1"),
+            index("second", "leger", "t3:o1"),
+            index("third", "frappant", "t4:o1", relation="contre_indice"),
+            index("fourth", "net", "t5:o1"),
+            index("fifth", "frappant", "t6:o1"),
         ]
-        for count, expected in enumerate((0, 2, 4, 6, 6, 10, 10)):
-            results = quantify_dimensions(indices[:count], catalog)
-            confidence = next(item for item in results if item["id"] == "confiance_en_soi")
-            self.assertEqual(confidence["score"], expected)
-        self.assertEqual(confidence["episode_count"], 4)
-        self.assertEqual(confidence["source_refs"], ["t2:o1", "t3:o1", "t5:o1", "t6:o1"])
-        self.assertNotIn("contre_appui", confidence)
-        other = next(item for item in results if item["id"] == "manque_de_confiance_en_soi")
-        self.assertEqual(other["score"], 0)
-        self.assertEqual(other["status"], "sans_indice")
+        for count, expected in enumerate((0, 2, 8, 8, 8, 9, 10)):
+            result, *_ = quantify_dimensions(indices[:count], catalog)
+            self.assertEqual(result["score"], expected)
+        self.assertEqual(result["episode_count"], 4)
+        self.assertEqual(result["source_refs"], ["t2:o1", "t3:o1", "t5:o1", "t6:o1"])
+        for intensity, expected in (("leger", 4), ("net", 8)):
+            result, *others = quantify_dimensions([
+                index(f"episode-{i}", intensity, f"t{i}:o1") for i in range(1, 10)
+            ], catalog)
+            self.assertEqual(result["score"], expected)
+            self.assertTrue(all(item["score"] == 0 and item["appui"] is None for item in others))
 
     def test_new_dimension_and_override_from_yaml(self):
         with TemporaryDirectory() as temp:

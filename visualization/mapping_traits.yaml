@@ -1,47 +1,12 @@
 channels:
+  - dimension: analytique
+    signal: appui
+    address: /trait/analytique
+    idle: 0.0
+    scale: 10.0
   - dimension: enthousiasme
     signal: appui
     address: /trait/enthousiasme
-    idle: 0.0
-    scale: 10.0
-  - dimension: reveur
-    signal: appui
-    address: /trait/reveur
-    idle: 0.0
-    scale: 10.0
-  - dimension: passionne
-    signal: appui
-    address: /trait/passionne
-    idle: 0.0
-    scale: 10.0
-  - dimension: creativite
-    signal: appui
-    address: /trait/creativite
-    idle: 0.0
-    scale: 10.0
-  - dimension: bienveillance
-    signal: appui
-    address: /trait/bienveillance
-    idle: 0.0
-    scale: 10.0
-  - dimension: force_de_proposition
-    signal: appui
-    address: /trait/force_de_proposition
-    idle: 0.0
-    scale: 10.0
-  - dimension: impulsivite
-    signal: appui
-    address: /trait/impulsivite
-    idle: 0.0
-    scale: 10.0
-  - dimension: autocritique
-    signal: appui
-    address: /trait/autocritique
-    idle: 0.0
-    scale: 10.0
-  - dimension: domination
-    signal: appui
-    address: /trait/domination
     idle: 0.0
     scale: 10.0
   - dimension: extraversion
@@ -49,33 +14,23 @@ channels:
     address: /trait/extraversion
     idle: 0.0
     scale: 10.0
-  - dimension: introversion
-    signal: appui
-    address: /trait/introversion
-    idle: 0.0
-    scale: 10.0
-  - dimension: confiance_en_soi
-    signal: appui
-    address: /trait/confiance_en_soi
-    idle: 0.0
-    scale: 10.0
-  - dimension: manque_de_confiance_en_soi
-    signal: appui
-    address: /trait/manque_de_confiance_en_soi
-    idle: 0.0
-    scale: 10.0
-  - dimension: analytique
-    signal: appui
-    address: /trait/analytique
-    idle: 0.0
-    scale: 10.0
   - dimension: humour
     signal: appui
     address: /trait/humour
     idle: 0.0
     scale: 10.0
-  - dimension: angoisse
+  - dimension: torture
     signal: appui
-    address: /trait/angoisse
+    address: /trait/torture
+    idle: 0.0
+    scale: 10.0
+  - dimension: reveur
+    signal: appui
+    address: /trait/reveur
+    idle: 0.0
+    scale: 10.0
+  - dimension: creativite
+    signal: appui
+    address: /trait/creativite
     idle: 0.0
     scale: 10.0

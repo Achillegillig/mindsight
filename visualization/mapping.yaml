@@ -1,9 +1,9 @@
 channels:
-  - dimension: affirmation_de_soi
+  - dimension: extraversion
     signal: appui
     address: /ouverture
     idle: 0.0
-  - dimension: reactivite_emotionnelle
+  - dimension: enthousiasme
     signal: appui
     address: /energie
     idle: 0.0

@@ -12,7 +12,7 @@ from haystack.utils import Secret
 from haystack_integrations.components.generators.openrouter import OpenRouterChatGenerator
 
 from .prompt_config import read_prompts
-from .quantification import load_catalog
+from .quantification import INTENSITY_POINTS, load_catalog
 
 EXTRACTION_PROMPTS = read_prompts()["extraction"]
 OBSERVE = "\n".join(EXTRACTION_PROMPTS["observe"])
@@ -102,11 +102,19 @@ def grounded_dimensions(payload, observations, catalog, known_episodes):
         if count < profile.get("min_observations", 1) or not isinstance(reading, str) or not 0 < len(reading.strip()) <= 350:
             continue
         strength = item.get("strength")
+        intensity = item.get("intensity")
         if item.get("relation", "appui") != "appui" or strength not in ("direct", "indirect"):
             continue
+        if intensity is not None and (not isinstance(intensity, str) or intensity not in INTENSITY_POINTS):
+            continue
         participant = [by_id[key] for key in ids if by_id[key]["subject"] == "participant"]
-        has_lived_evidence = any(obs["mode"] in ("vecu", "declaration") for obs in participant)
-        if not has_lived_evidence:
+        has_direct_context = any(
+            obs["mode"] in ("vecu", "declaration")
+            or (profile.get("allow_hypothetical_reasoning") and obs["mode"] == "hypothetique"
+                and obs["kind"] == "raisonnement")
+            for obs in participant
+        )
+        if not has_direct_context:
             if not (profile.get("allow_fiction")
                     and any(obs["mode"] == "fiction" for obs in participant)):
                 continue
@@ -119,6 +127,7 @@ def grounded_dimensions(payload, observations, catalog, known_episodes):
             "reading": reading.strip(), "episode_ref": episode,
             "episode_label": label.strip()[:100] if isinstance(label, str) else "",
             "strength": strength,
+            **({"intensity": intensity} if intensity is not None else {}),
         })
     return dimensions
 

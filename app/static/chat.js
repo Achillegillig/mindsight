@@ -44,6 +44,7 @@ const modes = {
   hypothetique: "Hypothèse",
 };
 const strengths = { direct: "direct", indirect: "indirect" };
+const intensities = { leger: "léger", net: "net", frappant: "frappant" };
 const formatNumber = new Intl.NumberFormat("fr", { maximumFractionDigits: 3 });
 
 function textElement(tag, text) {
@@ -83,7 +84,8 @@ function renderReasoningTurn(turn, labels) {
     const refs = item.observation_ids.map((id) => `t${turn.turn}:${id}`).join(", ");
     const episode = turn.episode_ids[index];
     const labelEpisode = episode === "unknown" ? "Épisode incertain" : `Épisode ${episode}`;
-    links.append(textElement("li", `${label} · Appui ${strengths[item.strength]}. `
+    const level = intensities[item.intensity] ?? strengths[item.strength];
+    links.append(textElement("li", `${label} · Indice ${level}. `
       + `${item.reading} (${refs} · ${labelEpisode})`));
   }
   interpretation.append(links.childElementCount ? links : textElement("p",
@@ -103,8 +105,9 @@ function renderAttribution(item) {
     const n = formatNumber.format;
     details.append(textElement("p",
       `Score ${n(item.score)} / 10 · Épisodes ${item.episode_count}`));
-    const calculation = textElement("p",
-      `Total des points ${n(calc.total_points)} · Plafond ${n(calc.max_score)}`);
+    const calculation = textElement("p", calc.strategy === "contrast"
+      ? "Le meilleur indice fixe la base. Jusqu’à deux autres épisodes peuvent relever la note."
+      : `Total des points ${n(calc.total_points)} · Plafond ${n(calc.max_score)}`);
     calculation.className = "reasoning-note";
     details.append(calculation);
     const sources = document.createElement("ul");
