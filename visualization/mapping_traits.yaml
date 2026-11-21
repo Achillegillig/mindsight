@@ -1,0 +1,27 @@
+channels:
+  - dimension: creativite
+    signal: appui
+    address: /trait/creativite
+    idle: 0.0
+    scale: 10.0
+  - dimension: analyse
+    signal: appui
+    address: /trait/analytique
+    idle: 0.0
+    scale: 10.0
+  # L’empathie exprimée alimente la neige comme choix de rendu.
+  - dimension: empathie
+    signal: appui
+    address: /trait/bienveillance
+    idle: 0.0
+    scale: 10.0
+  - dimension: assurance
+    signal: appui
+    address: /trait/confiance_en_soi
+    idle: 0.0
+    scale: 10.0
+  - dimension: extraversion
+    signal: appui
+    address: /trait/extraversion
+    idle: 0.0
+    scale: 10.0

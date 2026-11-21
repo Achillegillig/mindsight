@@ -26,7 +26,7 @@ from app.extraction import extract_turn
 from app.mcp_server import serve_mcp
 from app.quantification import load_catalog
 from app.server import ConversationHandler, ConversationService
-from visualization.mcp_to_osc import bridge
+from visualization.mcp_to_osc import MAPPING_PATH, bridge, forward_snapshot, load_mapping
 
 
 @contextmanager
@@ -104,6 +104,31 @@ class FixtureOpenRouter(BaseHTTPRequestHandler):
 
 
 class LiveFlowTests(unittest.TestCase):
+    def test_portrait_mapping_sends_scaled_support_and_idle_as_osc_floats(self):
+        channels = load_mapping(MAPPING_PATH.with_name("mapping_traits.yaml"))
+        snapshot = {"dimensions": [
+            {"id": "creativite", "appui": 0.75, "contre_appui": 0.5},
+            {"id": "analyse", "appui": 0.25},
+            {"id": "empathie", "appui": 0.5},
+            {"id": "assurance", "appui": 1.0},
+            {"id": "extraversion", "appui": None},
+        ]}
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as receiver:
+            receiver.bind(("127.0.0.1", 0))
+            receiver.settimeout(2)
+            with SimpleUDPClient("127.0.0.1", receiver.getsockname()[1]) as osc:
+                forward_snapshot(snapshot, channels, osc)
+            messages = [OscPacket(receiver.recv(1024)).messages[0].message for _ in channels]
+
+        self.assertEqual([(message.address, message.params) for message in messages], [
+            ("/trait/creativite", [7.5]),
+            ("/trait/analytique", [2.5]),
+            ("/trait/bienveillance", [5.0]),
+            ("/trait/confiance_en_soi", [10.0]),
+            ("/trait/extraversion", [0.0]),
+        ])
+        self.assertTrue(all(type(message.params[0]) is float for message in messages))
+
     def test_speech_route_calls_azure_synthesis_and_returns_audio(self):
         speech = partial(synthesize, "fixture-key", "westeurope", DEFAULT_VOICE, style=DEFAULT_STYLE)
         with ConversationService(load_catalog(), reasoning=True) as service:

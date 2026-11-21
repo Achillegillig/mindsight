@@ -126,11 +126,11 @@ journal. Avec `--simulate`, le panneau indique que l’analyse est simulée.
 
 Au démarrage, MindSight affiche les adresses du chat et de MCP. Ouvrir le chat,
 puis prendre l’identifiant de session affiché dans le terminal du serveur.
-Dans un second terminal, lancer le pont en remplaçant `IDENTIFIANT` par cette
-valeur.
+Dans un second terminal, lancer le pont pour le portrait en remplaçant
+`IDENTIFIANT` par cette valeur.
 
 ```sh
-python3 -m visualization.mcp_to_osc --session-id IDENTIFIANT
+python3 -m visualization.mcp_to_osc --session-id IDENTIFIANT --mapping visualization/mapping_traits.yaml
 ```
 
 Le pont lit `mindsight://sessions/{session_id}/dimensions` sur
@@ -140,11 +140,16 @@ avec `--mcp-url`. **Recommencer** crée une autre session. Indiquer alors son
 nouvel identifiant au pont. Les sessions sont conservées jusqu’à l’arrêt du
 serveur.
 
-Modifier `app/dimensions.yaml` pour changer les dimensions ou les poids,
-puis redémarrer MindSight. Modifier `visualization/mapping.yaml` pour choisir
-les canaux et les valeurs de repos OSC, puis relancer le pont. Un signal absent
-vaut `null` dans MCP. Le pont utilise la valeur de repos du canal si elle est
-renseignée.
+Le mapping du portrait transmet cinq appuis sur l’échelle `0–10`. Le mapping
+par défaut `visualization/mapping.yaml` sert à la constellation (`/ouverture`
+et `/energie` sur l’échelle `0–1`). Le guide donne les onze adresses du
+portrait, les étapes de configuration du DAT et les essais à faire. [Brancher le portrait dans TouchDesigner](<../04 Resources/MindSight - Brancher le portrait dans TouchDesigner.md>)
+
+Modifier `app/dimensions.yaml` pour changer les dimensions ou les poids, puis
+redémarrer MindSight. Modifier le fichier de mapping utilisé pour ajuster les
+canaux, puis relancer le pont. Quand un signal vaut `null` dans MCP, le pont
+utilise `idle` s’il est renseigné. Le facteur `scale` s’applique au signal ou
+à sa valeur de repos avant l’envoi. Sans `scale`, le facteur est `1.0`.
 
 ## Exécuter les tests
 
