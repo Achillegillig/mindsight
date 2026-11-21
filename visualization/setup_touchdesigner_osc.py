@@ -10,10 +10,14 @@ CALLBACK = HERE / "touchdesigner_osc_callbacks.py"
 APPARITION = HERE / "touchdesigner_apparition.py"
 
 
-def dimension_rows():
+def dimension_rows(op):
     callback = run_path(str(CALLBACK))
     aliases = callback["ALIASES"]
-    paths = {aliases.get(nom, nom): f"/trait_{nom}" for nom in callback["TRAITS"]}
+    paths = {}
+    for nom in callback["TRAITS"]:
+        node = op(f"/trait_{nom}")
+        if node is not None and getattr(node.par, "Intensite", None) is not None:
+            paths[aliases.get(nom, nom)] = node.path
     channels = yaml.safe_load((HERE / "mapping_traits.yaml").read_text(encoding="utf-8"))["channels"]
     rows = [("dimension", "intensite", "composant")]
     rows.extend(
@@ -29,19 +33,17 @@ def install(destination=HERE / "MindSight_Portrait_OSC.toe"):
     if destination.exists():
         raise FileExistsError(f"Choisir un autre nom de destination. {destination} existe déjà.")
 
-    rows = dimension_rows()
-    expected = [
-        (chemin, "Intensite") for _, _, chemin in rows[1:] if chemin
-    ] + [("/trait_impulsif", "Boucle"), ("/finition", "Force")]
-    for chemin, nom in expected:
-        node = op(chemin)
-        if node is None or getattr(node.par, nom, None) is None:
-            raise ValueError(f"Ouvrir le projet du portrait. Paramètre introuvable {chemin}.{nom}")
-    for chemin in ("/trait_impulsif/apparition", "/controles", "/composition/final"):
+    rows = dimension_rows(op)
+    if not any(chemin for _, _, chemin in rows[1:]):
+        raise ValueError("Ouvrir le projet du portrait. Aucun trait avec un paramètre Intensite.")
+    for chemin in ("/controles", "/composition/final"):
         if op(chemin) is None:
             raise ValueError(f"Ouvrir le projet du portrait. Opérateur introuvable {chemin}")
+    finition = op("/finition")
+    if finition is None or getattr(finition.par, "Force", None) is None:
+        raise ValueError("Ouvrir le projet du portrait. Paramètre introuvable /finition.Force")
     apparition = op("/trait_impulsif/apparition")
-    if not isinstance(apparition, textDAT):
+    if apparition is not None and not isinstance(apparition, textDAT):
         raise TypeError(f"{apparition.path} doit être un Text DAT.")
 
     def get_or_create(parent, operator_type, name):
@@ -72,7 +74,8 @@ def install(destination=HERE / "MindSight_Portrait_OSC.toe"):
     receiver.par.maxlines = 100
     receiver.par.callbacks = callbacks.path
     receiver.par.executeloc = "callbacks"
-    apparition.text = APPARITION.read_text(encoding="utf-8")
+    if apparition is not None:
+        apparition.text = APPARITION.read_text(encoding="utf-8")
     receiver.par.active = True
     project.save(destination.as_posix(), saveExternalToxs=False)
     print(f"Portrait OSC enregistré dans {destination}")

@@ -33,12 +33,19 @@ def _profil(table, args):
     valeurs = [_borne(valeur, 10.0) for valeur in args]
     if None in valeurs:
         return
-    cibles = [_cible(f"/trait_{nom}", "Intensite") for nom in TRAITS]
-    if any(cible is None for cible in cibles):
-        return
-    for nom, cible, valeur in zip(TRAITS, cibles, valeurs):
-        cible.val = valeur
-        table[ALIASES.get(nom, nom), "intensite"] = valeur
+    dimensions = [ALIASES.get(nom, nom) for nom in TRAITS]
+    cibles = {}
+    for nom in dimensions:
+        chemin = table[nom, "composant"]
+        if chemin is not None and chemin.val:
+            cible = _cible(chemin.val, "Intensite")
+            if cible is None:
+                return
+            cibles[nom] = cible
+    for nom, valeur in zip(dimensions, valeurs):
+        if nom in cibles:
+            cibles[nom].val = valeur
+        table[nom, "intensite"] = valeur
 
 
 def _dimension(table, nom, valeur):
@@ -60,11 +67,14 @@ def onReceiveOSC(dat, rowIndex, message, byteData, timeStamp, address, args, pee
     elif len(args) == 1:
         valeur = args[0]
         if address == "/trait/impulsif/rejouer" and type(valeur) is int and valeur == 1:
-            op("/trait_impulsif/apparition").module.rejouer()
+            apparition = op("/trait_impulsif/apparition")
+            if apparition is not None:
+                apparition.module.rejouer()
         elif address == "/trait/impulsif/boucle" and type(valeur) is int and valeur in (0, 1):
-            cible = _cible("/trait_impulsif", "Boucle")
-            if cible is not None:
-                cible.val = bool(valeur)
+            if op("/trait_impulsif") is not None:
+                cible = _cible("/trait_impulsif", "Boucle")
+                if cible is not None:
+                    cible.val = bool(valeur)
         elif address == "/finition/force":
             force = _borne(valeur, 1.0)
             if force is not None:
