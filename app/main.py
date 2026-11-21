@@ -4,6 +4,7 @@ import argparse
 import errno
 import json
 import os
+import socket
 import subprocess
 from functools import partial
 from http.server import ThreadingHTTPServer
@@ -11,7 +12,6 @@ from pathlib import Path
 
 from .dialogue import CONFIG, DIRECTORY, OPENING
 from .openrouter import DEFAULT_MODEL
-from .server import RECORD_PATH, ConversationHandler
 
 def openrouter_key():
     key = os.environ.get("OPENROUTER_API_KEY", "").strip()
@@ -46,13 +46,22 @@ def export_demo(destination):
     destination.write_text(page, encoding="utf-8")
 
 
-def create_server(handler):
+class LocalHTTPServer(ThreadingHTTPServer):
+    def server_bind(self):
+        if os.name == "nt":
+            self.allow_reuse_address = False
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
+def create_server(handler, port=8000):
     try:
-        return ThreadingHTTPServer(("127.0.0.1", 8000), handler)
+        return LocalHTTPServer(("127.0.0.1", port), handler)
     except OSError as error:
-        if error.errno != errno.EADDRINUSE:
+        address_busy = error.errno == errno.EADDRINUSE or getattr(error, "winerror", None) in (10013, 10048)
+        if not port or not address_busy:
             raise
-        return ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        return LocalHTTPServer(("127.0.0.1", 0), handler)
 
 
 def open_firefox(url):
@@ -71,6 +80,8 @@ if __name__ == "__main__":
     parser.add_argument("--simulate", action="store_true", help="Utiliser les relances préparées.")
     parser.add_argument("--open", action="store_true", help="Ouvrir Firefox dès que le serveur écoute.")
     parser.add_argument("--record", action="store_true", help="Enregistrer les tours dans test-results.jsonl.")
+    parser.add_argument("--port", type=int, default=8000, help="Port du chat local (0 pour un port libre).")
+    parser.add_argument("--mcp-port", type=int, default=8001, help="Port MCP local (0 pour un port libre).")
     args = parser.parse_args()
     if args.export:
         export_demo(args.export)
@@ -79,34 +90,35 @@ if __name__ == "__main__":
         api_key = "" if args.simulate else openrouter_key()
         if not args.simulate and not api_key:
             parser.error("Renseigne OPENROUTER_API_KEY dans .env ou utilise --simulate.")
-        handler = partial(
-            ConversationHandler,
+        os.environ.setdefault("HAYSTACK_TELEMETRY_ENABLED", "false")
+        from .mcp_server import serve_mcp
+        from .quantification import load_catalog
+        from .server import RECORD_PATH, ConversationHandler, ConversationService
+
+        try:
+            catalog = load_catalog()
+        except (OSError, ValueError) as error:
+            parser.exit(1, f"Catalogue de dimensions invalide : {error}\n")
+        with ConversationService(
+            catalog,
             model=None if args.simulate else args.model,
             api_key=api_key,
             record_path=RECORD_PATH if args.record else None,
-        )
-        try:
-            server = create_server(handler)
-        except PermissionError:
-            parser.exit(
-                1,
-                "Impossible d’ouvrir un port local dans ce terminal. "
-                "Lance la commande dans le Terminal de Linux Mint, hors de Codex.\n",
-            )
-        except OSError as error:
-            parser.exit(1, f"Impossible de démarrer MindSight : {error.strerror}.\n")
-        with server:
-            url = f"http://127.0.0.1:{server.server_port}/"
-            print(f"MindSight — {url}", flush=True)
-            if args.simulate:
-                print("Mode — conversation simulée.", flush=True)
-            else:
-                print(f"Mode — OpenRouter, modèle {args.model}.", flush=True)
-            if args.record:
-                print(f"Journal de test — {RECORD_PATH}", flush=True)
-            if args.open:
-                open_firefox(url)
+        ) as service:
             try:
-                server.serve_forever()
+                handler = partial(ConversationHandler, service=service)
+                with create_server(handler, args.port) as server, serve_mcp(service, args.mcp_port) as mcp_url:
+                    url = f"http://127.0.0.1:{server.server_port}/"
+                    print(f"MindSight — {url}", flush=True)
+                    print(f"MCP — {mcp_url}", flush=True)
+                    mode = "conversation simulée" if args.simulate else f"OpenRouter, modèle {args.model}"
+                    print(f"Mode — {mode}.", flush=True)
+                    if args.record:
+                        print(f"Journal de test — {RECORD_PATH}", flush=True)
+                    if args.open:
+                        open_firefox(url)
+                    server.serve_forever()
             except KeyboardInterrupt:
                 pass
+            except (OSError, RuntimeError, OverflowError) as error:
+                parser.exit(1, f"Impossible de démarrer MindSight : {error}\n")

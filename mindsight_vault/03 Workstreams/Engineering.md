@@ -24,6 +24,7 @@ si nécessaire. Le fichier est ignoré par Git. Une variable d’environnement
 Depuis la racine du projet, dans le Terminal de Linux Mint :
 
 ```sh
+python3 -m pip install -r requirements.txt
 python3 -m app.main --open
 ```
 
@@ -50,25 +51,20 @@ python3 -m app.main --export mindsight-demo.html
 
 ## Extraction par tour
 
-`POST /api/conversation/turn` utilise la dernière question et la dernière
-réponse pour un second appel OpenRouter, lancé en parallèle de la relance.
-Le serveur renvoie les deux résultats dans le même JSON :
+Le navigateur ouvre une session avec `POST /api/conversation/session`, puis
+envoie l’historique, l’identifiant de session et un identifiant d’envoi
+à `POST /api/conversation/turn`. Le serveur renvoie la relance pendant que
+l’analyste traite le tour. Un renvoi avec le même identifiant et le même
+historique réutilise la relance obtenue lors du premier envoi.
 
-```json
-{
-  "reply": "Qu’est-ce qui te plaît dans ce paysage ?",
-  "extraction": {
-    "visual_elements": [{"label": "rivière", "quote": "au fond d’une rivière"}],
-    "expressed_feelings": [{"label": "calme", "quote": "Le courant me calme"}]
-  }
-}
-```
-
-Les extraits doivent figurer textuellement dans la réponse de l’utilisateur.
-Un tableau vide indique qu’aucun élément de ce type n’a été retenu.
-`extraction` vaut `null` en mode simulé ou si l’extraction échoue.
-La discussion reste affichée dans le chat et le JSON est visible dans
-l’onglet Réseau de Firefox, sur la requête `turn`.
+L’analyste Haystack relève les observations et contrôle leurs citations avant
+de les interpréter selon `app/dimensions.yaml`. Les citations et leurs positions
+sont calculées par rapport à la réponse validée par le serveur. Les clients
+qui transmettent seulement l’historique à `/api/conversation/turn` reçoivent
+la relance et l’extraction locale dans le même JSON, avec les tableaux
+`visual_elements`, `expressed_feelings`, `observations` et `dimensions`.
+Pour `dimensions`, `[]` indique une analyse sans lecture retenue, et `null`
+une passe d’interprétation indisponible.
 
 ## Enregistrer les résultats de test
 
@@ -83,27 +79,45 @@ la question, la réponse de l’utilisateur, la relance et l’extraction.
 Le fichier est créé au premier tour et ignoré par Git. Le journal est
 facultatif et prévu pour les essais sur des récits fictifs.
 
-## Architecture et plan pour l’animation
+## Architecture et raccord à TouchDesigner
 
 | Partie | Où lire le code | Responsabilité |
 | --- | --- | --- |
 | Conversation | `app/dialogue.py`, `app/prompts.json`, `app/static/chat.js` | Vérifier l’historique, définir le préprompt et afficher la prochaine question. |
-| Extraction | `app/extraction.py` | Recevoir la dernière question et la réponse, puis relever des éléments visuels et des ressentis exprimés, avec citations. |
-| Animation | Futur module côté navigateur | Recevoir le champ `extraction` du JSON et décider comment faire évoluer le paysage. |
-| Serveur | `app/server.py` | Recevoir le tour, lancer la relance et l’extraction, renvoyer leur résultat et enregistrer le tour sur demande. |
+| Extraction | `app/extraction.py`, `app/dimensions.yaml` | Relever les observations citées, puis les interpréter avec les fiches du catalogue. |
+| Serveur | `app/server.py` | Coordonner les tours et conserver en mémoire les épisodes et les analyses de la session. |
+| Quantification | `app/quantification.py` | Calculer l’appui et le contre-appui en plafonnant la contribution de chaque épisode. |
+| Animation | `app/mcp_server.py`, `visualization/mcp_to_osc.py` | Lire les révisions du portrait sur MCP et envoyer les valeurs configurées à TouchDesigner. |
 | Démarrage et accès au modèle | `app/main.py`, `app/openrouter.py` | Démarrer le serveur local et envoyer les requêtes à OpenRouter. |
 
-Quand une personne envoie un message, le navigateur transmet l’historique au
-serveur. Le modèle reçoit cet historique pour la relance. En parallèle,
-l’extraction reçoit uniquement la dernière question et la dernière réponse.
-Le serveur réunit les résultats dans le JSON décrit plus haut.
+Au démarrage, MindSight affiche les adresses du chat et de MCP. Ouvrir le chat,
+puis prendre l’identifiant de session affiché dans le terminal du serveur.
+Dans un second terminal, lancer le pont en remplaçant `IDENTIFIANT` par cette
+valeur.
 
-Plan de raccord pour le futur module d’animation :
+```sh
+python3 -m visualization.mcp_to_osc --session-id IDENTIFIANT
+```
 
-1. Prendre quelques extractions du journal de test comme entrées et définir
-   avec les artistes les détails que le premier rendu peut représenter.
-2. Vérifier hors ligne qu’une suite de ces entrées fait évoluer une même
-   scène. Un champ `extraction` à `null` laisse la scène dans son état actuel.
-3. Brancher le rendu sur le champ `extraction` déjà renvoyé à chaque tour,
-   puis vérifier avec un nouveau récit que les changements suivent les mots
-   de la personne.
+Le pont lit `mindsight://sessions/{session_id}/dimensions` sur
+`http://127.0.0.1:8001/mcp` et envoie les messages OSC au port UDP 9000.
+Si MindSight est démarré avec `--mcp-port`, passer l’adresse affichée au pont
+avec `--mcp-url`. **Recommencer** crée une autre session. Indiquer alors son
+nouvel identifiant au pont. Les sessions sont conservées jusqu’à l’arrêt du
+serveur.
+
+Modifier `app/dimensions.yaml` pour changer les dimensions ou les poids,
+puis redémarrer MindSight. Modifier `visualization/mapping.yaml` pour choisir
+les canaux et les valeurs de repos OSC, puis relancer le pont. Un signal absent
+vaut `null` dans MCP. Le pont utilise la valeur de repos du canal si elle est
+renseignée.
+
+## Exécuter les tests
+
+```sh
+python3 -m unittest discover -s tests -v
+```
+
+Le test de bout en bout utilise un fournisseur de modèle local, la vraie
+connexion MCP et un récepteur UDP. Il vérifie la déduplication des envois,
+le regroupement des épisodes et les valeurs OSC avec des récits fictifs.

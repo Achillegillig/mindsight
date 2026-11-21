@@ -5,11 +5,13 @@ const reset = document.querySelector("#reset");
 const messages = document.querySelector("#messages");
 const status = document.querySelector("#status");
 let history = [];
+let sessionId;
+let pendingRequest;
 const demo = document.querySelector("#demo-data");
 
-async function getOpening() {
-  if (demo) return JSON.parse(demo.textContent).opening;
-  const response = await fetch("/api/conversation/opening");
+async function openSession() {
+  if (demo) return { opening: JSON.parse(demo.textContent).opening };
+  const response = await fetch("/api/conversation/session", { method: "POST" });
   if (!response.ok) throw new Error();
   return response.json();
 }
@@ -22,7 +24,11 @@ async function getReply(messages) {
   const response = await fetch("/api/conversation/turn", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({
+      messages,
+      session_id: sessionId,
+      request_id: pendingRequest.id,
+    }),
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.detail);
@@ -50,7 +56,9 @@ async function start() {
   setBusy(true);
   status.textContent = "";
   try {
-    const opening = await getOpening();
+    const { opening, session_id } = await openSession();
+    sessionId = session_id;
+    pendingRequest = undefined;
     history = [opening];
     messages.replaceChildren();
     append(opening);
@@ -76,12 +84,16 @@ form.addEventListener("submit", async (event) => {
   if (!content || send.disabled) return;
 
   const userMessage = { role: "user", content };
+  if (!demo && pendingRequest?.content !== content) {
+    pendingRequest = { id: crypto.randomUUID(), content };
+  }
   setBusy(true);
   status.textContent = "Relance en cours…";
   try {
     const reply = await getReply([...history, userMessage]);
     const assistantMessage = { role: "assistant", content: reply };
     history.push(userMessage, assistantMessage);
+    pendingRequest = undefined;
     append(userMessage);
     append(assistantMessage);
     answer.value = "";

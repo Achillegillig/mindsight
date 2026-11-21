@@ -1,0 +1,9 @@
+channels:
+  - dimension: force_de_proposition
+    signal: appui
+    address: /ouverture
+    idle: 0.0
+  - dimension: reactivite_emotionnelle
+    signal: appui
+    address: /energie
+    idle: 0.0

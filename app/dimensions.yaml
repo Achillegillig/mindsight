@@ -1,0 +1,91 @@
+version: 1
+quantification:
+  weights: {direct: 1.0, indirect: 0.5}
+  saturation: 1.0
+
+dimensions:
+  - id: reserve
+    family: Personnalité apparente
+    label: Réserve exprimée
+    definition: Décrit une retenue dans la prise de parole ou l'entrée en relation.
+    exclusions: [Brièveté de la réponse seule]
+  - id: assurance
+    family: Personnalité apparente
+    label: Assurance
+    definition: Exprime ou indique une confiance dans sa manière d'agir dans une situation précise.
+  - id: analyse
+    family: Fonctionnement intellectuel
+    label: Démarche analytique
+    definition: Décompose un problème, compare des options ou explicite des critères.
+  - id: intuition
+    family: Fonctionnement intellectuel
+    label: Intuition exprimée
+    definition: Explique un choix en s'appuyant sur une impression spontanée.
+  - id: creativite
+    family: Fonctionnement intellectuel
+    label: Créativité exprimée
+    definition: Imagine un rapprochement original ou une autre manière de faire.
+  - id: reactivite_emotionnelle
+    family: Fonctionnement émotionnel
+    label: Réactivité émotionnelle
+    definition: Raconte un changement émotionnel en réaction à un événement identifiable.
+  - id: regulation_emotionnelle
+    family: Fonctionnement émotionnel
+    label: Régulation émotionnelle
+    definition: Décrit une action destinée à traverser ou moduler une émotion.
+  - id: empathie
+    family: Fonctionnement relationnel
+    label: Empathie exprimée
+    definition: Cherche à comprendre le vécu d'autrui ou adapte son action à ce vécu.
+    exclusions: [Accord poli seul, Émotion attribuée sans justification]
+  - id: cooperation
+    family: Fonctionnement relationnel
+    label: Coopération
+    definition: Partage le travail, cherche une solution commune ou inclut autrui dans la décision.
+  - id: remise_en_question
+    family: Rapport à soi
+    label: Remise en question
+    definition: Décrit la révision d'un jugement, d'une décision ou d'un point de vue.
+    exclusions: [Autodévalorisation sans révision identifiable]
+  - id: introspection
+    family: Rapport à soi
+    label: Introspection exprimée
+    definition: Réfléchit explicitement à ses propres motivations, réactions ou choix.
+  - id: confiance_autrui
+    family: Rapport aux autres
+    label: Confiance envers autrui
+    definition: Exprime de la confiance ou décrit le fait de s'en remettre à quelqu'un.
+  - id: jugement
+    family: Rapport aux autres
+    label: Jugement envers autrui
+    definition: Formule une appréciation sur quelqu'un, idéalement en explicitant ses critères.
+    exclusions: [Jugement cité et attribué à un tiers]
+  - id: force_de_proposition
+    family: Rapport au pouvoir et au contrôle
+    label: Force de proposition
+    definition: Introduit une option concrète dans un échange ou une décision collective.
+    examples: ["J’ai proposé deux versions, puis le groupe a choisi."]
+    exclusions: [Proposition de quelqu'un d'autre seulement rapportée]
+  - id: autonomie
+    family: Rapport au pouvoir et au contrôle
+    label: Autonomie
+    definition: Exprime une préférence pour décider ou agir par soi-même dans une situation.
+  - id: domination
+    family: Rapport au pouvoir et au contrôle
+    label: Domination exprimée
+    definition: Décrit l'imposition d'une décision ou la restriction du choix d'autrui.
+    exclusions: [Proposition ouverte à la discussion, Exercice d'un rôle sans pouvoir imposé]
+  - id: liberte
+    family: Valeurs et motivations
+    label: Liberté
+    definition: Nomme la liberté de choix ou de mouvement comme une valeur qui guide une décision.
+  - id: reconnaissance
+    family: Valeurs et motivations
+    label: Recherche de reconnaissance
+    definition: Exprime l'importance accordée à la reconnaissance de son effort ou de sa contribution.
+  - id: tension
+    family: Contradictions et zones de tension
+    label: Tension exprimée
+    definition: Relie deux passages compatibles avec une ambivalence, une variation contextuelle ou une contradiction explicite.
+    exclusions: [Variation de contexte présentée comme une contradiction]
+    min_observations: 2
