@@ -1,5 +1,5 @@
 channels:
-  - dimension: force_de_proposition
+  - dimension: affirmation_de_soi
     signal: appui
     address: /ouverture
     idle: 0.0

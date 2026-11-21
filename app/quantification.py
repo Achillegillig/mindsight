@@ -69,7 +69,7 @@ def load_catalog(path=CATALOG_PATH):
     )
 
 
-def quantify_dimensions(indices, catalog):
+def quantify_dimensions(indices, catalog, *, include_calculation=False):
     """Un seul poids maximal par épisode, dimension et sens."""
     by_dimension = defaultdict(list)
     for index in indices:
@@ -91,7 +91,7 @@ def quantify_dimensions(indices, catalog):
         total_support = sum(weight for weight, _ in support.values())
         total_counter = sum(weight for weight, _ in counter.values())
         observed = bool(support or counter)
-        dimensions.append({
+        result = {
             "id": dimension["id"],
             "label": dimension["label"],
             "appui": total_support / (total_support + k) if observed else None,
@@ -101,5 +101,20 @@ def quantify_dimensions(indices, catalog):
             "source_refs": list(dict.fromkeys(
                 ref for group in episodes.values() for _, refs in group.values() for ref in refs
             )),
-        })
+        }
+        if include_calculation:
+            result["family"] = dimension.get("family", "Dimensions")
+            result["definition"] = dimension["definition"]
+            result["calculation"] = {
+                "k": k,
+                "weights": weights,
+                "support_total": total_support,
+                "counter_total": total_counter,
+                "selected": [
+                    {"relation": relation, "episode_id": episode_id, "weight": weight, "source_refs": refs}
+                    for relation, group in episodes.items()
+                    for episode_id, (weight, refs) in group.items()
+                ],
+            }
+        dimensions.append(result)
     return dimensions

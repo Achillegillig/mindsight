@@ -20,6 +20,15 @@
       <button id="send" type="submit" disabled>Envoyer</button>
       <p id="status" role="status"></p>
     </form>
+    <section id="reasoning" aria-labelledby="reasoning-title" hidden>
+      <h2 id="reasoning-title">Analyse des traits</h2>
+      <p id="reasoning-status" role="status"></p>
+      <h3>Indices et interprétations par tour</h3>
+      <div id="reasoning-turns"></div>
+      <h3>État des attributions</h3>
+      <p class="reasoning-note">Les valeurs reflètent les indices recueillis dans cet échange. Le calcul retient le poids maximal par épisode et par sens.</p>
+      <div id="reasoning-dimensions"></div>
+    </section>
   </main>
 </body>
 </html>

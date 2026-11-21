@@ -19,6 +19,7 @@ from haystack_integrations.components.generators.openrouter import OpenRouterCha
 from pythonosc.osc_packet import OscPacket
 from pythonosc.udp_client import SimpleUDPClient
 
+from app.dialogue import OPENING
 from app.extraction import extract_turn
 from app.mcp_server import serve_mcp
 from app.quantification import load_catalog
@@ -70,7 +71,7 @@ class FixtureOpenRouter(BaseHTTPRequestHandler):
         answer = payload["answer"]
         self.requests.append(payload)
         if "observations" not in payload:
-            if answer == "J’ai proposé deux options.":
+            if answer == "J’ai dit que je préférais la seconde option.":
                 self.gate.wait(8)
             data = {"observations": [{
                 "label": "Épisode", "quote": answer, "kind": "action",
@@ -80,10 +81,10 @@ class FixtureOpenRouter(BaseHTTPRequestHandler):
             data = {"unexpected": []}
         else:
             replay = answer.startswith("Dans le même projet")
-            relation = "contre_indice" if "refusé" in answer else "appui"
+            relation = "contre_indice" if "tais" in answer else "appui"
             episode_ref = payload["known_episodes"][0]["id"] if replay else "new:episode"
             data = {"dimensions": [{
-                "dimension_id": "force_de_proposition", "reading": "Initiative dans cet épisode.",
+                "dimension_id": "affirmation_de_soi", "reading": "Position exprimée dans cet épisode.",
                 "relation": relation, "strength": "indirect" if "atelier" in answer else "direct",
                 "observation_ids": ["o1"], "episode_ref": episode_ref, "episode_label": answer,
             }]}
@@ -103,7 +104,8 @@ class FixtureOpenRouter(BaseHTTPRequestHandler):
 class LiveFlowTests(unittest.TestCase):
     def test_simulation_starts_through_the_cli(self):
         with subprocess.Popen(
-            [sys.executable, "-X", "utf8", "-m", "app.main", "--simulate", "--port", "0", "--mcp-port", "0"],
+            [sys.executable, "-X", "utf8", "-m", "app.main", "--simulate", "--reasoning",
+             "--port", "0", "--mcp-port", "0"],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
         ) as process:
             lines = Queue()
@@ -124,12 +126,18 @@ class LiveFlowTests(unittest.TestCase):
                     if separator and name in ("MindSight", "MCP"):
                         urls[name] = url
                 session = post(urls["MindSight"] + "api/conversation/session", {})
+                self.assertTrue(session["reasoning"])
                 response = post(urls["MindSight"] + "api/conversation/turn", {
                     "session_id": session["session_id"], "request_id": "simulated",
                     "messages": [session["opening"], {"role": "user", "content": "Un galet."}],
                 })
                 self.assertTrue(response["reply"])
                 self.assertEqual(response["analysis_status"], "simulated")
+                trace_url = urls["MindSight"] + f"api/conversation/session/{session['session_id']}/reasoning"
+                with urlopen(trace_url, timeout=5) as response:
+                    reasoning = json.load(response)
+                self.assertEqual(reasoning["analysis_status"], "simulated")
+                self.assertEqual(reasoning["turns"], [])
                 asyncio.run(bridge(urls["MCP"], session["session_id"], (), None, once=True))
             finally:
                 process.terminate()
@@ -149,19 +157,58 @@ class LiveFlowTests(unittest.TestCase):
         release = Event()
         provider_requests = []
         fake_provider = partial(FixtureOpenRouter, gate=release, requests=provider_requests)
-        with serving(fake_provider) as provider_url:
+        with TemporaryDirectory() as directory, serving(fake_provider) as provider_url:
+            record_path = Path(directory) / "test-results.jsonl"
+
             def extractor(*args, **kwargs):
                 factory = partial(OpenRouterChatGenerator, api_base_url=provider_url)
                 return extract_turn(*args, **kwargs, generator_factory=factory)
 
             with ConversationService(load_catalog(), model="fake/local", api_key="fixture",
-                                     extractor=extractor, dialogue=lambda *_: "Et ensuite ?") as service:
+                                     record_path=record_path, reasoning=True, extractor=extractor,
+                                     dialogue=lambda *_: "Et ensuite ?") as service:
                 handler = partial(ConversationHandler, service=service)
                 with serving(handler) as chat_url, serve_mcp(service, 0) as mcp_url:
-                    self.exercise_conversation(service, chat_url, mcp_url, release, provider_requests)
+                    snapshot = self.exercise_conversation(service, chat_url, mcp_url, release, provider_requests)
+
+            entries = [json.loads(line) for line in record_path.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual([entry["turn"] for entry in entries], [1, 2, 3, 4, 5])
+            self.assertEqual({entry["session_id"] for entry in entries}, {snapshot["session_id"]})
+            self.assertEqual([entry["quantification"]["revision"] for entry in entries], [1, 2, 3, 4, 5])
+            first = entries[0]
+            self.assertEqual(first["extraction"]["observations"][0]["quote"], "J’ai dit que je préférais la seconde option.")
+            self.assertEqual(first["extraction"]["dimensions"][0]["dimension_id"], "affirmation_de_soi")
+            self.assertEqual(first["quantification"]["scope"], "session")
+            initiative = next(item for item in first["quantification"]["dimensions"]
+                              if item["id"] == "affirmation_de_soi")
+            self.assertEqual(initiative["appui"], 0.5)
+            self.assertEqual(initiative["source_refs"], ["t1:o1"])
+            last = entries[-1]
+            self.assertEqual(last["analysis_status"], "partial")
+            self.assertIsNone(last["extraction"]["dimensions"])
+            self.assertEqual(last["quantification"]["dimensions"], snapshot["dimensions"])
+
+    def test_record_without_session_quantifies_the_single_turn(self):
+        extraction = {"dimensions": [{
+            "dimension_id": "affirmation_de_soi", "relation": "appui", "strength": "direct",
+            "episode_ref": "new:episode", "episode_label": "Réunion", "observation_ids": ["o1"],
+        }]}
+        with TemporaryDirectory() as directory:
+            record_path = Path(directory) / "test-results.jsonl"
+            with ConversationService(load_catalog(), model="fake/local", record_path=record_path,
+                                     extractor=lambda *args, **kwargs: extraction,
+                                     dialogue=lambda *_: "Et ensuite ?") as service:
+                service.process_legacy_turn([OPENING, {"role": "user", "content": "J’ai dit quelle option je préférais."}])
+            entry = json.loads(record_path.read_text(encoding="utf-8"))
+        self.assertEqual(entry["quantification"]["scope"], "turn")
+        self.assertEqual(entry["analysis_status"], "ready")
+        initiative = next(item for item in entry["quantification"]["dimensions"]
+                          if item["id"] == "affirmation_de_soi")
+        self.assertEqual(initiative["appui"], 0.5)
 
     def exercise_conversation(self, service, chat_url, mcp_url, release, provider_requests):
         session = post(chat_url + "/api/conversation/session", {})
+        self.assertTrue(session["reasoning"])
         session_id = session["session_id"]
         turn_url = chat_url + "/api/conversation/turn"
         history = [session["opening"]]
@@ -176,26 +223,38 @@ class LiveFlowTests(unittest.TestCase):
             return payload, result
 
         try:
-            first, result = send("J’ai proposé deux options.", "request-1")
+            first, result = send("J’ai dit que je préférais la seconde option.", "request-1")
             self.assertEqual(result["analysis_status"], "pending")
             self.assertEqual(post(turn_url, first), result)
             self.assertEqual(service.get_snapshot(session_id)["revision"], 0)
         finally:
             release.set()
         self.assertEqual(wait_for_turn(service, session_id, 1)["analysis_status"], "ready")
-        send("Dans le même projet, j’ai présenté deux idées.", "request-2")
-        send("Dans un atelier, j’ai suggéré un format.", "request-3")
-        send("Sur un autre projet, j’ai refusé de proposer une option.", "request-4")
+        send("Dans le même projet, j’ai dit laquelle je préférais.", "request-2")
+        send("Dans un atelier, j’ai orienté le choix vers mon format préféré.", "request-3")
+        send("Sur un autre projet, je me tais malgré mon désaccord.", "request-4")
         send("Échec de l’interprétation.", "request-5")
         snapshot = wait_for_turn(service, session_id, 5)
-        initiative = next(item for item in snapshot["dimensions"] if item["id"] == "force_de_proposition")
+        initiative = next(item for item in snapshot["dimensions"] if item["id"] == "affirmation_de_soi")
         self.assertEqual(snapshot["revision"], 5)
         self.assertEqual(snapshot["analysis_status"], "partial")
         self.assertEqual(initiative["appui"], 0.6)
         self.assertEqual(initiative["contre_appui"], 0.5)
         self.assertEqual(initiative["episode_count"], 3)
-        self.assertEqual(snapshot["observations"]["t1:o1"]["quote"], "J’ai proposé deux options.")
+        self.assertEqual(snapshot["observations"]["t1:o1"]["quote"], "J’ai dit que je préférais la seconde option.")
         self.assertEqual(len(provider_requests), 10)
+
+        with urlopen(chat_url + f"/api/conversation/session/{session_id}/reasoning", timeout=5) as response:
+            trace = json.load(response)
+        self.assertEqual(trace["analysis_status"], "partial")
+        self.assertEqual([item["turn"] for item in trace["turns"]], [1, 2, 3, 4, 5])
+        self.assertEqual(trace["turns"][0]["episode_ids"], trace["turns"][1]["episode_ids"])
+        self.assertEqual(trace["turns"][0]["extraction"]["trace"]["observation_candidates"], 1)
+        attribution = next(item for item in trace["dimensions"] if item["id"] == "affirmation_de_soi")
+        self.assertEqual(attribution["family"], "Fonctionnement relationnel")
+        self.assertEqual(attribution["calculation"]["support_total"], 1.5)
+        self.assertEqual(attribution["calculation"]["counter_total"], 1.0)
+        self.assertEqual(attribution["appui"], initiative["appui"])
 
         first["messages"][-1]["content"] = "Une autre réponse"
         with self.assertRaises(HTTPError) as error:
@@ -208,8 +267,8 @@ class LiveFlowTests(unittest.TestCase):
             receiver.bind(("127.0.0.1", 0))
             receiver.settimeout(2)
             channels = [
-                {"dimension": "force_de_proposition", "signal": "appui", "address": "/ouverture"},
-                {"dimension": "force_de_proposition", "signal": "contre_appui", "address": "/nuance"},
+                {"dimension": "affirmation_de_soi", "signal": "appui", "address": "/ouverture"},
+                {"dimension": "affirmation_de_soi", "signal": "contre_appui", "address": "/nuance"},
             ]
             with SimpleUDPClient("127.0.0.1", receiver.getsockname()[1]) as osc:
                 asyncio.run(bridge(mcp_url, session_id, channels, osc, once=True))
@@ -217,3 +276,4 @@ class LiveFlowTests(unittest.TestCase):
         self.assertEqual([item.address for item in messages], ["/ouverture", "/nuance"])
         self.assertAlmostEqual(messages[0].params[0], 0.6)
         self.assertAlmostEqual(messages[1].params[0], 0.5)
+        return snapshot

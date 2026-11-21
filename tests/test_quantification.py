@@ -1,4 +1,5 @@
 import unittest
+from collections import Counter
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -6,11 +7,21 @@ from app.quantification import load_catalog, quantify_dimensions
 
 
 class QuantificationTests(unittest.TestCase):
+    def test_catalog_covers_four_families_and_distinguishes_sensitivities(self):
+        catalog = load_catalog()
+        groups = Counter(item["family"] for item in catalog.dimensions)
+        self.assertEqual(groups, {
+            "Personnalité apparente": 4, "Fonctionnement intellectuel": 5,
+            "Fonctionnement émotionnel": 4, "Fonctionnement relationnel": 4,
+        })
+        ids = {item["id"] for item in catalog.dimensions}
+        self.assertTrue({"sensibilite_apparente", "sensibilite_emotionnelle"} <= ids)
+
     def test_weights_count_episodes_and_keep_counter_evidence(self):
         catalog = load_catalog()
 
         def index(episode, strength, ref, relation="appui"):
-            return {"dimension_id": "force_de_proposition", "episode_id": episode,
+            return {"dimension_id": "affirmation_de_soi", "episode_id": episode,
                     "strength": strength, "source_refs": [ref], "relation": relation}
 
         items = quantify_dimensions([
@@ -20,7 +31,7 @@ class QuantificationTests(unittest.TestCase):
             index("third", "direct", "t4:o1", "contre_indice"),
         ], catalog)
         output = {item["id"]: item for item in items}
-        initiative = output["force_de_proposition"]
+        initiative = output["affirmation_de_soi"]
         self.assertEqual(initiative["appui"], 0.6)
         self.assertEqual(initiative["contre_appui"], 0.5)
         self.assertEqual(initiative["episode_count"], 3)

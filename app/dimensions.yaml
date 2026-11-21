@@ -1,9 +1,19 @@
-version: 1
+version: 2
 quantification:
   weights: {direct: 1.0, indirect: 0.5}
   saturation: 1.0
 
 dimensions:
+  - id: sensibilite_apparente
+    family: Personnalité apparente
+    label: Sensibilité apparente
+    definition: Manifeste une attention à des nuances perceptives ou à l'ambiance d'une situation.
+    exclusions: [Description détaillée seule, Intensité d'une émotion sans attention à ses nuances]
+  - id: extraversion
+    family: Personnalité apparente
+    label: Extraversion exprimée
+    definition: Dit rechercher ou apprécier activement le contact social, ou rapporte un exemple de cette démarche.
+    exclusions: [Longueur de la réponse, Aisance verbale seule]
   - id: reserve
     family: Personnalité apparente
     label: Réserve exprimée
@@ -12,7 +22,8 @@ dimensions:
   - id: assurance
     family: Personnalité apparente
     label: Assurance
-    definition: Exprime ou indique une confiance dans sa manière d'agir dans une situation précise.
+    definition: Exprime de la confiance dans sa manière d'agir ou de décider dans une situation précise.
+    exclusions: [Ton catégorique seul]
   - id: analyse
     family: Fonctionnement intellectuel
     label: Démarche analytique
@@ -25,67 +36,51 @@ dimensions:
     family: Fonctionnement intellectuel
     label: Créativité exprimée
     definition: Imagine un rapprochement original ou une autre manière de faire.
-  - id: reactivite_emotionnelle
+  - id: logique
+    family: Fonctionnement intellectuel
+    label: Raisonnement logique
+    definition: Relie explicitement des prémisses à une conséquence ou vérifie la cohérence d'une conclusion.
+    exclusions: [Simple inventaire d'options, Usage isolé d'un connecteur logique]
+  - id: abstraction
+    family: Fonctionnement intellectuel
+    label: Pensée abstraite
+    definition: Passe d'un cas concret à un principe général, ou met en relation des idées générales.
+    exclusions: [Vocabulaire abstrait seul]
+  - id: expression_emotionnelle
     family: Fonctionnement émotionnel
-    label: Réactivité émotionnelle
-    definition: Raconte un changement émotionnel en réaction à un événement identifiable.
+    label: Expression émotionnelle
+    definition: Nomme, décrit ou communique un ressenti qui lui est attribuable.
+    exclusions: [Émotion d’un tiers, Ressenti supposé à partir d'une image seule]
   - id: regulation_emotionnelle
     family: Fonctionnement émotionnel
     label: Régulation émotionnelle
     definition: Décrit une action destinée à traverser ou moduler une émotion.
+  - id: sensibilite_emotionnelle
+    family: Fonctionnement émotionnel
+    label: Sensibilité émotionnelle
+    definition: Décrit ce qui le touche émotionnellement ou les nuances qu'il perçoit dans son propre ressenti.
+    exclusions: [Réaction rapide seule, Attention sensorielle sans ressenti formulé]
+  - id: reactivite_emotionnelle
+    family: Fonctionnement émotionnel
+    label: Réactivité émotionnelle
+    definition: Raconte une variation rapide ou marquée de son état émotionnel en réponse à un événement identifiable.
   - id: empathie
     family: Fonctionnement relationnel
     label: Empathie exprimée
     definition: Cherche à comprendre le vécu d'autrui ou adapte son action à ce vécu.
     exclusions: [Accord poli seul, Émotion attribuée sans justification]
+  - id: ecoute
+    family: Fonctionnement relationnel
+    label: Écoute
+    definition: Reformule, demande des précisions ou prend concrètement en compte les propos d'autrui.
+    exclusions: [Accord seul, Simple présence lors d'un échange]
   - id: cooperation
     family: Fonctionnement relationnel
     label: Coopération
     definition: Partage le travail, cherche une solution commune ou inclut autrui dans la décision.
-  - id: remise_en_question
-    family: Rapport à soi
-    label: Remise en question
-    definition: Décrit la révision d'un jugement, d'une décision ou d'un point de vue.
-    exclusions: [Autodévalorisation sans révision identifiable]
-  - id: introspection
-    family: Rapport à soi
-    label: Introspection exprimée
-    definition: Réfléchit explicitement à ses propres motivations, réactions ou choix.
-  - id: confiance_autrui
-    family: Rapport aux autres
-    label: Confiance envers autrui
-    definition: Exprime de la confiance ou décrit le fait de s'en remettre à quelqu'un.
-  - id: jugement
-    family: Rapport aux autres
-    label: Jugement envers autrui
-    definition: Formule une appréciation sur quelqu'un, idéalement en explicitant ses critères.
-    exclusions: [Jugement cité et attribué à un tiers]
-  - id: force_de_proposition
-    family: Rapport au pouvoir et au contrôle
-    label: Force de proposition
-    definition: Introduit une option concrète dans un échange ou une décision collective.
-    examples: ["J’ai proposé deux versions, puis le groupe a choisi."]
-    exclusions: [Proposition de quelqu'un d'autre seulement rapportée]
-  - id: autonomie
-    family: Rapport au pouvoir et au contrôle
-    label: Autonomie
-    definition: Exprime une préférence pour décider ou agir par soi-même dans une situation.
-  - id: domination
-    family: Rapport au pouvoir et au contrôle
-    label: Domination exprimée
-    definition: Décrit l'imposition d'une décision ou la restriction du choix d'autrui.
-    exclusions: [Proposition ouverte à la discussion, Exercice d'un rôle sans pouvoir imposé]
-  - id: liberte
-    family: Valeurs et motivations
-    label: Liberté
-    definition: Nomme la liberté de choix ou de mouvement comme une valeur qui guide une décision.
-  - id: reconnaissance
-    family: Valeurs et motivations
-    label: Recherche de reconnaissance
-    definition: Exprime l'importance accordée à la reconnaissance de son effort ou de sa contribution.
-  - id: tension
-    family: Contradictions et zones de tension
-    label: Tension exprimée
-    definition: Relie deux passages compatibles avec une ambivalence, une variation contextuelle ou une contradiction explicite.
-    exclusions: [Variation de contexte présentée comme une contradiction]
-    min_observations: 2
+  - id: affirmation_de_soi
+    family: Fonctionnement relationnel
+    label: Affirmation de soi
+    definition: Formule sa préférence, sa limite ou son désaccord dans un échange.
+    examples: ["J’ai dit que je préférais la seconde option et j’ai expliqué pourquoi."]
+    exclusions: [Proposition sans expression d'une position personnelle, Décision imposée seule]

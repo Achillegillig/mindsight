@@ -47,6 +47,12 @@ def open_private(filename, flags):
     return os.open(filename, flags, 0o600)
 
 
+def analysis_status(extraction):
+    if extraction is None:
+        return "failed"
+    return "ready" if extraction["dimensions"] is not None else "partial"
+
+
 class TurnConflict(ValueError):
     pass
 
@@ -62,15 +68,17 @@ class Session:
     state_lock: Lock = field(default_factory=Lock)
     draining: bool = False
     snapshot: dict = field(default_factory=dict)
+    reasoning_turns: list = field(default_factory=list)
 
 
 class ConversationService:
-    def __init__(self, catalog, *, model=None, api_key=None, record_path=None,
+    def __init__(self, catalog, *, model=None, api_key=None, record_path=None, reasoning=False,
                  extractor=extract_turn, dialogue=generate_reply):
         self.catalog = catalog
         self.model = model
         self.api_key = api_key
         self.record_path = record_path
+        self.reasoning = reasoning
         self.extractor = extractor
         self.dialogue = dialogue
         self.executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="mindsight")
@@ -103,11 +111,20 @@ class ConversationService:
         with session.state_lock:
             return deepcopy(session.snapshot)
 
+    def get_reasoning(self, session_id):
+        session = self.get_session(session_id)
+        with session.state_lock:
+            return deepcopy({
+                **{key: session.snapshot[key] for key in ("analysis_status", "through_turn", "latest_turn")},
+                "dimensions": quantify_dimensions(session.indices, self.catalog, include_calculation=True),
+                "turns": session.reasoning_turns,
+            })
+
     def analyze(self, messages, known_episodes=()):
         try:
             return self.extractor(
                 self.api_key, self.model, messages[-2]["content"], messages[-1]["content"],
-                catalog=self.catalog, known_episodes=known_episodes,
+                catalog=self.catalog, known_episodes=known_episodes, include_trace=self.reasoning,
             )
         except ExtractionError:
             LOGGER.warning("Extraction indisponible pour un tour.")
@@ -120,12 +137,32 @@ class ConversationService:
             return demo_reply(messages)
         return self.dialogue(self.api_key, self.model, read_system_prompt(), messages)
 
-    def record(self, messages, result):
-        if self.record_path is not None:
-            try:
-                record_turn(self.record_path, messages, result)
-            except OSError as error:
-                LOGGER.error("Écriture du journal de test impossible : %s", error)
+    def record(self, messages, result, *, snapshot=None):
+        if self.record_path is None:
+            return
+        entry = dict(result)
+        if snapshot is not None:
+            entry["session_id"] = snapshot["session_id"]
+            entry["quantification"] = {
+                "scope": "session",
+                **{key: snapshot[key] for key in ("catalog_version", "revision", "through_turn", "dimensions")},
+            }
+        else:
+            turn = len(messages) // 2
+            extraction = result["extraction"]
+            links = (extraction or {}).get("dimensions") or []
+            indices = self.collect_indices({}, turn, links)
+            entry["analysis_status"] = analysis_status(extraction) if self.model else "simulated"
+            entry["quantification"] = {
+                "scope": "turn",
+                "catalog_version": self.catalog.version,
+                "through_turn": turn,
+                "dimensions": quantify_dimensions(indices, self.catalog),
+            }
+        try:
+            record_turn(self.record_path, messages, entry)
+        except OSError as error:
+            LOGGER.error("Écriture du journal de test impossible : %s", error)
 
     def process_legacy_turn(self, messages):
         job = self.executor.submit(self.analyze, messages) if self.model else None
@@ -159,9 +196,10 @@ class ConversationService:
                         self.executor.submit(self.drain_session, session)
                 else:
                     session.snapshot.update(through_turn=turn, revision=session.snapshot["revision"] + 1)
+                    snapshot = session.snapshot.copy()
             session.requests[request_id] = (messages, result)
             if not self.model:
-                self.record(messages, result)
+                self.record(messages, result, snapshot=snapshot)
             return result
 
     def drain_session(self, session):
@@ -174,36 +212,46 @@ class ConversationService:
                 known = [{"id": key, "label": label} for key, label in list(session.episodes.items())[-20:]]
             extraction = self.analyze(messages, known)
             links = extraction["dimensions"] if extraction is not None else None
-            status = "ready" if links is not None else "partial" if extraction is not None else "failed"
+            status = analysis_status(extraction)
             with session.state_lock:
                 if extraction is not None:
                     session.snapshot["observations"].update({
                         f"t{turn}:{item['id']}": item for item in extraction["observations"]
                     })
-                if links is not None:
-                    self.accumulate(session, turn, links)
+                indices = self.collect_indices(session.episodes, turn, links or [])
+                session.indices.extend(indices)
+                if self.reasoning:
+                    session.reasoning_turns.append({
+                        "turn": turn, "status": status, "extraction": extraction,
+                        "episode_ids": [index["episode_id"] for index in indices],
+                    })
                 session.snapshot.update(
                     revision=session.snapshot["revision"] + 1,
                     through_turn=turn,
                     analysis_status="pending" if session.queue else status,
                     dimensions=quantify_dimensions(session.indices, self.catalog),
                 )
-            self.record(messages, {"reply": reply, "extraction": extraction, "analysis_status": status})
+                snapshot = session.snapshot.copy()
+            self.record(messages, {
+                "reply": reply, "extraction": extraction, "analysis_status": status,
+            }, snapshot=snapshot)
 
     @staticmethod
-    def accumulate(session, turn, links):
+    def collect_indices(episodes, turn, links):
+        indices = []
         for link in links:
             episode = link["episode_ref"]
             if episode.startswith("new:"):
                 episode = f"t{turn}-{episode[4:]}"
-                session.episodes.setdefault(episode, link["episode_label"] or f"Épisode du tour {turn}")
-            elif episode not in session.episodes:
+                episodes.setdefault(episode, link["episode_label"] or f"Épisode du tour {turn}")
+            elif episode not in episodes:
                 episode = "unknown"
-            session.indices.append({
+            indices.append({
                 "dimension_id": link["dimension_id"], "relation": link["relation"],
                 "strength": link["strength"], "episode_id": episode,
                 "source_refs": [f"t{turn}:{item}" for item in link["observation_ids"]],
             })
+        return indices
 
 
 class ConversationHandler(BaseHTTPRequestHandler):
@@ -226,6 +274,14 @@ class ConversationHandler(BaseHTTPRequestHandler):
             self.send_json(200, OPENING)
         elif self.path == "/api/conversation/mode":
             self.send_json(200, {"model": self.service.model})
+        elif self.service.reasoning and self.path.startswith(f"{SESSION_PATH}/") and self.path.endswith("/reasoning"):
+            session_id = self.path.removeprefix(f"{SESSION_PATH}/").removesuffix("/reasoning")
+            try:
+                reasoning = self.service.get_reasoning(session_id)
+            except KeyError:
+                self.send_json(404, {"detail": "Session introuvable."})
+            else:
+                self.send_json(200, reasoning)
         elif self.path in STATIC:
             filename, media_type = STATIC[self.path]
             self.send_content(200, (DIRECTORY / "static" / filename).read_bytes(), media_type)
@@ -236,7 +292,9 @@ class ConversationHandler(BaseHTTPRequestHandler):
         if self.path == SESSION_PATH:
             session_id = self.service.create_session()
             self.log_message("Session MindSight : %s", session_id)
-            self.send_json(201, {"session_id": session_id, "opening": OPENING})
+            self.send_json(201, {
+                "session_id": session_id, "opening": OPENING, "reasoning": self.service.reasoning,
+            })
             return
         if self.path != TURN_PATH:
             self.send_json(404, {"detail": "Route introuvable."})

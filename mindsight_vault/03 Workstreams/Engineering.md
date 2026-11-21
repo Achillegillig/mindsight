@@ -74,10 +74,31 @@ Depuis la racine du projet, lancer le serveur avec l’option `--record` :
 python3 -m app.main --open --record
 ```
 
-Chaque tour terminé ajoute une ligne à `test-results.jsonl`. Elle contient
-la question, la réponse de l’utilisateur, la relance et l’extraction.
-Le fichier est créé au premier tour et ignoré par Git. Le journal est
+Chaque tour analysé ajoute une ligne à `test-results.jsonl`. Elle contient
+la question, la réponse de l’utilisateur, la relance et l’état de l’analyse.
+Le champ `extraction` conserve les éléments visuels, les ressentis exprimés,
+les observations citées et les dimensions interprétées pour ce tour.
+Le champ `quantification` contient la version du catalogue, les appuis,
+les contre-appuis, le nombre d’épisodes et les références des indices retenus.
+Pour le chat, les valeurs sont cumulées dans la session et accompagnées de
+sa révision. Pour un appel sans identifiant de session, elles portent sur
+le tour analysé.
+
+Le fichier est créé à la première écriture et ignoré par Git. Le journal est
 facultatif et prévu pour les essais sur des récits fictifs.
+
+## Afficher l’analyse des traits
+
+```sh
+python3 -m app.main --reasoning
+```
+
+Le panneau du chat montre les citations validées et leur attribution, les
+interprétations par tour, puis l’état des 17 dimensions. Pour une dimension
+documentée, le calcul affiche les poids retenus par épisode, les appuis et
+les contre-appuis. Les lectures sont des interprétations situées du discours.
+Ajouter `--record` pour conserver également la trace de validation dans le
+journal. Avec `--simulate`, le panneau indique que l’analyse est simulée.
 
 ## Architecture et raccord à TouchDesigner
 

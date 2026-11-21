@@ -29,7 +29,7 @@ def observe(quote, **fields):
 
 def link(**fields):
     return {
-        "dimension_id": "force_de_proposition", "reading": "Proposition dans le projet.",
+        "dimension_id": "affirmation_de_soi", "reading": "La personne formule sa préférence auprès du groupe.",
         "observation_ids": ["o1"], "relation": "appui", "strength": "direct",
         "episode_ref": "new:projet", "episode_label": "Projet collectif", **fields,
     }
@@ -47,14 +47,14 @@ class ExtractionTests(unittest.TestCase):
             return FakeGenerator(next(replies), self.prompts)
 
         return extract_turn("test", "fake", "Une question absente du récit ?", answer,
-                            catalog=self.catalog, generator_factory=factory)
+                            catalog=self.catalog, include_trace=True, generator_factory=factory)
 
     def test_two_passes_anchor_and_validate_links(self):
-        answer = "Un galet. J’ai proposé deux options. Mon ami était inquiet."
+        answer = "Un galet. J’ai dit que je préférais la seconde option. Mon ami était inquiet."
         result = self.analyze(
             answer,
             json.dumps({"observations": [
-                observe("J’ai proposé deux options"),
+                observe("J’ai dit que je préférais la seconde option"),
                 observe("Un galet", kind="image", mode="fiction"),
                 observe("Mon ami était inquiet", kind="ressenti", subject="tiers"),
                 observe("Une question absente du récit"),
@@ -62,7 +62,7 @@ class ExtractionTests(unittest.TestCase):
             ]}),
             json.dumps({"dimensions": [
                 link(), link(observation_ids=["o7"]), link(dimension_id="inconnue"),
-                link(observation_ids=["o2"]), link(dimension_id="tension", observation_ids=["o1", "o1"]),
+                link(observation_ids=["o2"]),
             ]}),
         )
         self.assertEqual(len(self.prompts), 2)
@@ -71,6 +71,7 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(result["expressed_feelings"], [])
         self.assertEqual(result["visual_elements"][0]["quote"], "Un galet")
         self.assertEqual(len(result["dimensions"]), 1)
+        self.assertEqual(result["trace"], {"observation_candidates": 5, "interpretation_candidates": 4})
         item = result["observations"][0]
         self.assertEqual(answer[item["start"]:item["end"]], item["quote"])
 

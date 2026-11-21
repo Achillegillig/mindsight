@@ -80,6 +80,7 @@ if __name__ == "__main__":
     parser.add_argument("--simulate", action="store_true", help="Utiliser les relances préparées.")
     parser.add_argument("--open", action="store_true", help="Ouvrir Firefox dès que le serveur écoute.")
     parser.add_argument("--record", action="store_true", help="Enregistrer les tours dans test-results.jsonl.")
+    parser.add_argument("--reasoning", action="store_true", help="Afficher les indices et les décisions d’attribution dans le chat.")
     parser.add_argument("--port", type=int, default=8000, help="Port du chat local (0 pour un port libre).")
     parser.add_argument("--mcp-port", type=int, default=8001, help="Port MCP local (0 pour un port libre).")
     args = parser.parse_args()
@@ -104,6 +105,7 @@ if __name__ == "__main__":
             model=None if args.simulate else args.model,
             api_key=api_key,
             record_path=RECORD_PATH if args.record else None,
+            reasoning=args.reasoning,
         ) as service:
             try:
                 handler = partial(ConversationHandler, service=service)

@@ -18,3 +18,12 @@ textarea { width: 100%; padding: .75rem; font: inherit; border: 1px solid #737b7
 button { justify-self: start; border: 0; border-radius: .5rem; background: #294536; color: white; font: inherit; padding: .55rem .85rem; }
 button:disabled { opacity: .6; }
 #status { margin: 0; min-height: 1.5em; }
+#reasoning { margin-top: 2rem; border-top: 1px solid #a8ad9f; padding-top: 1rem; }
+#reasoning h2, #reasoning h3 { margin: .5rem 0; }
+#reasoning summary { cursor: pointer; overflow-wrap: anywhere; }
+#reasoning details { border-top: 1px solid #cbd0c5; padding: .55rem 0; }
+#reasoning p, #reasoning ul, #reasoning ol { margin: .4rem 0; }
+#reasoning li { padding: .25rem 0; background: transparent; border-radius: 0; }
+#reasoning ol { display: block; padding-left: 1.4rem; list-style: decimal; }
+#reasoning ul { padding-left: 1.15rem; }
+.reasoning-note { color: #4c564c; font-size: .9rem; }

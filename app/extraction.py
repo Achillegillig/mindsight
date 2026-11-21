@@ -25,8 +25,9 @@ Si aucun passage ne convient, observations est vide."""
 
 INTERPRET = """Relie les observations validées aux fiches du catalogue, en français.
 Renvoie {"dimensions": [...]} avec au maximum 16 interprétations, chacune avec :
-dimension_id, observation_ids (liste des identifiants fournis), reading (lecture courte et
-située), relation (appui ou contre_indice), strength (direct ou indirect),
+dimension_id, observation_ids (liste des identifiants fournis), reading (une phrase courte
+qui relie l'indice au critère de la fiche et situe la lecture),
+relation (appui ou contre_indice), strength (direct ou indirect),
 episode_ref et episode_label. Respecte les exclusions et le nombre minimal d'observations.
 Pour une dimension, cite au moins une observation attribuée au participant et ancrée
 dans un vécu ou une déclaration. Garde les images et la fiction dans les observations.
@@ -139,7 +140,7 @@ def grounded_dimensions(payload, observations, catalog, known_episodes):
 
 
 def extract_turn(api_key, model, question, answer, *, catalog=None, known_episodes=(),
-                 timeout=10.0, generator_factory=OpenRouterChatGenerator):
+                 include_trace=False, timeout=10.0, generator_factory=OpenRouterChatGenerator):
     catalog = catalog if catalog is not None else load_catalog()
     deadline = monotonic() + timeout
 
@@ -157,9 +158,10 @@ def extract_turn(api_key, model, question, answer, *, catalog=None, known_episod
         )
         return run_pass(generator, prompt, payload)
 
-    observations = grounded_observations(generate(OBSERVE, {
+    observed = generate(OBSERVE, {
         "question": question, "answer": answer,
-    }, timeout / 2), answer)
+    }, timeout / 2)
+    observations = grounded_observations(observed, answer)
     result = {
         "visual_elements": [
             {"label": item["label"], "quote": item["quote"]} for item in observations
@@ -173,6 +175,7 @@ def extract_turn(api_key, model, question, answer, *, catalog=None, known_episod
         "observations": observations,
         "dimensions": [],
     }
+    interpretation_candidates = None
     if observations:
         try:
             interpreted = generate(INTERPRET, {
@@ -184,6 +187,12 @@ def extract_turn(api_key, model, question, answer, *, catalog=None, known_episod
                 ],
             }, timeout)
             result["dimensions"] = grounded_dimensions(interpreted, observations, catalog, known_episodes)
+            interpretation_candidates = len(interpreted["dimensions"])
         except ExtractionError:
             result["dimensions"] = None
+    if include_trace:
+        result["trace"] = {
+            "observation_candidates": len(observed["observations"]),
+            "interpretation_candidates": interpretation_candidates,
+        }
     return result
