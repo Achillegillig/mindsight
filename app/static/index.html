@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MindSight</title>
   <link rel="stylesheet" href="/static/chat.css">
-  <script type="module" src="/static/chat.js"></script>
+  <script defer src="/static/voice.js"></script>
+  <script defer src="/static/chat.js"></script>
 </head>
 <body>
   <main>
@@ -13,6 +14,11 @@
       <div><h1>MindSight</h1><p id="mode">Conversation simulée</p></div>
       <button id="reset" type="button">Recommencer</button>
     </header>
+    <div class="voice-controls">
+      <button id="voice-toggle" type="button" disabled>Activer la voix</button>
+      <button id="voice-replay" type="button" disabled>Réécouter</button>
+      <p id="voice-status" role="status"></p>
+    </div>
     <ol id="messages" aria-label="Conversation" aria-live="polite"></ol>
     <form>
       <label for="answer">Ta réponse</label>

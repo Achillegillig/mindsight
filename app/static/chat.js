@@ -4,6 +4,7 @@ const send = document.querySelector("#send");
 const reset = document.querySelector("#reset");
 const messages = document.querySelector("#messages");
 const status = document.querySelector("#status");
+const questionVoice = createQuestionVoice();
 let history = [];
 const demo = document.querySelector("#demo-data");
 
@@ -47,6 +48,7 @@ function setBusy(busy) {
 }
 
 async function start() {
+  questionVoice.reset();
   setBusy(true);
   status.textContent = "";
   try {
@@ -54,6 +56,7 @@ async function start() {
     history = [opening];
     messages.replaceChildren();
     append(opening);
+    questionVoice.setQuestion(opening.content);
     answer.value = "";
   } catch {
     status.textContent = "Impossible de charger la question. Clique sur Recommencer pour réessayer.";
@@ -84,6 +87,7 @@ form.addEventListener("submit", async (event) => {
     history.push(userMessage, assistantMessage);
     append(userMessage);
     append(assistantMessage);
+    questionVoice.setQuestion(reply);
     answer.value = "";
     status.textContent = "";
   } catch (error) {
@@ -105,7 +109,8 @@ start();
 if (!demo) {
   fetch("/api/conversation/mode")
     .then((response) => response.json())
-    .then(({ model }) => {
+    .then(({ model, azureSpeech }) => {
+      questionVoice.setAzureVoice(azureSpeech);
       document.querySelector("#mode").textContent = model ? `OpenRouter · ${model}` : "Conversation simulée";
     })
     .catch(() => {
