@@ -98,6 +98,10 @@ if __name__ == "__main__":
         with server:
             url = f"http://127.0.0.1:{server.server_port}/"
             print(f"MindSight — {url}", flush=True)
+            if args.simulate:
+                print("Mode — conversation simulée.", flush=True)
+            else:
+                print(f"Mode — OpenRouter, modèle {args.model}.", flush=True)
             if args.record:
                 print(f"Journal de test — {RECORD_PATH}", flush=True)
             if args.open:
