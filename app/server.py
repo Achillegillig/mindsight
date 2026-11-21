@@ -334,9 +334,10 @@ class ConversationService:
 
 
 class ConversationHandler(BaseHTTPRequestHandler):
-    def __init__(self, *args, service, speech=None):
+    def __init__(self, *args, service, speech=None, on_session_created=None):
         self.service = service
         self.speech = speech
+        self.on_session_created = on_session_created
         super().__init__(*args)
 
     def send_content(self, status, content, media_type):
@@ -380,6 +381,8 @@ class ConversationHandler(BaseHTTPRequestHandler):
         if self.path == SESSION_PATH:
             session_id = self.service.create_session()
             self.log_message("Session MindSight : %s", session_id)
+            if self.on_session_created is not None:
+                self.on_session_created(session_id)
             self.send_json(201, {
                 "session_id": session_id, "opening": OPENING, "reasoning": self.service.reasoning,
             })

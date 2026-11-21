@@ -1,6 +1,6 @@
 # Brancher le portrait MindSight dans TouchDesigner
 
-Ce guide part du projet de portrait `NewProject.1.toe` (TouchDesigner 2025.33230 dans la fiche de l’artiste). Ouvre le fichier et crée une copie avec **File → Save As…**, par exemple `MindSight_Portrait_OSC.toe`. Vérifie que tu vois les composants `/trait_…`, le panneau `/controles` et la sortie `/composition/final`.
+Ouvre [MindSight_Portrait_OSC.toe](../../visualization/MindSight_Portrait_OSC.toe), préparé à partir de `NewProject.2.toe` pour TouchDesigner 2025.33230. Vérifie que tu vois le récepteur `/osc`, les composants `/trait_…`, le panneau `/controles` et la sortie `/composition/final`.
 
 Si TouchDesigner reste à installer, récupère l’installeur de la version utilisée par l’artiste et active ta licence au premier lancement dans **Key Manager**. [Installation Windows et macOS](https://docs.derivative.ca/Install_TouchDesigner)
 
@@ -17,23 +17,23 @@ Commence avec les deux programmes sur le même ordinateur. Pour un montage sur d
 
 ## 2. Brancher les onze adresses
 
-Chaque adresse reçoit un float OSC compris entre `0.0` et `10.0`. Les composants et leurs paramètres existent dans le fichier de l’artiste. La colonne **Source MindSight** indique ce que le préréglage `visualization/mapping_traits.yaml` transmet automatiquement. Les autres curseurs restent disponibles dans `/controles` et par OSC pour les essais ou le pilotage artistique.
+Chaque adresse reçoit un float OSC compris entre `0.0` et `10.0`. Le préréglage `visualization/mapping_traits.yaml` émet les seize dimensions d’`app/dimensions.yaml`. Le récepteur conserve les onze adresses historiques dans la première colonne. La colonne **Dimension MindSight** donne la source et, si le nom diffère, son adresse OSC canonique.
 
-| Adresse OSC | Paramètre `Intensite` du composant | Effet dans l’image | Source MindSight |
+| Adresse OSC historique | Paramètre `Intensite` du composant | Effet dans l’image | Dimension MindSight |
 | --- | --- | --- | --- |
-| `/trait/enthousiasme` | `/trait_enthousiasme` | De l’absence de fleur à une fleur explosive | Réglage artistique |
-| `/trait/reveur` | `/trait_reveur` | Densité des nuages et des étoiles | Réglage artistique |
-| `/trait/creativite` | `/trait_creativite` | Portée des explosions et nombre de figures | Appui de `creativite` |
-| `/trait/analytique` | `/trait_analytique` | Construction des anneaux et des modules | Appui d’`analyse` |
-| `/trait/torture` | `/trait_torture` | Lignes accidentées et coups de pinceau au premier plan | Réglage artistique |
-| `/trait/bienveillance` | `/trait_bienveillance` | Densité des flocons et de la neige déposée | Appui d’`empathie`, par choix de rendu |
-| `/trait/autocritique` | `/trait_autocritique` | Étirement, torsion et ondulation | Réglage artistique |
-| `/trait/humour` | `/trait_humour` | Gonflements et sauts rythmés | Réglage artistique |
-| `/trait/confiance_en_soi` | `/trait_confiance_en_soi` | Bord du cadre, du fondu au net | Appui d’`assurance` |
-| `/trait/extraversion` | `/trait_extraversion` | Fond bleu-gris à `0`, ocre à `5` et jaune à `10` | Appui d’`extraversion` |
-| `/trait/impulsif` | `/trait_impulsif` | Durée, flou et flashs de l’apparition | Réglage artistique |
+| `/trait/enthousiasme` | `/trait_enthousiasme` | De l’absence de fleur à une fleur explosive | `enthousiasme` |
+| `/trait/reveur` | `/trait_reveur` | Densité des nuages et des étoiles | `reveur` |
+| `/trait/creativite` | `/trait_creativite` | Portée des explosions et nombre de figures | `creativite` |
+| `/trait/analytique` | `/trait_analytique` | Construction des anneaux et des modules | `analytique` |
+| `/trait/torture` | `/trait_torture` | Lignes accidentées et coups de pinceau au premier plan | `angoisse` via `/trait/angoisse` |
+| `/trait/bienveillance` | `/trait_bienveillance` | Densité des flocons et de la neige déposée | `bienveillance` |
+| `/trait/autocritique` | `/trait_autocritique` | Étirement, torsion et ondulation | `autocritique` |
+| `/trait/humour` | `/trait_humour` | Gonflements et sauts rythmés | `humour` |
+| `/trait/confiance_en_soi` | `/trait_confiance_en_soi` | Bord du cadre, du fondu au net | `confiance_en_soi` |
+| `/trait/extraversion` | `/trait_extraversion` | Fond bleu-gris à `0`, ocre à `5` et jaune à `10` | `extraversion` |
+| `/trait/impulsif` | `/trait_impulsif` | Durée, flou et flashs de l’apparition | `impulsivite` via `/trait/impulsivite` |
 
-Le préréglage multiplie les appuis MCP par `10` pour passer de l’échelle `0–1` à l’échelle `0–10`. Un appui de `0.6` devient donc une intensité de `6.0`. Pour ces cinq canaux, l’intensité de repos est `0.0` lorsqu’aucun signal n’est disponible. Les six autres traits gardent leur réglage dans le projet. Les intensités traduisent les indices du récit en effets visuels.
+Les valeurs reçues sont visibles dans `/osc/dimensions`. Les canaux `/trait/passionne`, `/trait/force_de_proposition`, `/trait/domination`, `/trait/introversion` et `/trait/manque_de_confiance_en_soi` ont une ligne dans cette table avec une destination vide, car la scène ne contient pas de contrôles dédiés. Le préréglage multiplie l’appui MCP par `10` pour retrouver le score sur dix, avec `0.0` comme valeur de repos. L’ouverture du `.toe` seul conserve les valeurs artistiques enregistrées.
 
 ### Messages pour le pilotage manuel
 
@@ -46,83 +46,19 @@ Le préréglage multiplie les appuis MCP par `10` pour passer de l’échelle `0
 
 L’ordre de `/profil` est `enthousiasme`, `reveur`, `creativite`, `analytique`, `torture`, `bienveillance`, `autocritique`, `humour`, `confiance_en_soi`, `extraversion`, `impulsif`. Le pont MindSight utilise des messages individuels. Les commandes de ce tableau sont disponibles pour une répétition ou une régie manuelle.
 
-## 3. Installer le récepteur dans TouchDesigner
+## 3. Vérifier ou recréer le récepteur
 
-1. Dans le **Network Editor**, remonte à la racine `/`, au même niveau que les composants `trait_…`. Appuie sur **Tab**, choisis **Base** dans **COMP** et donne-lui le nom `osc`. Entre dans le composant. Son chemin doit être `/osc`.
-2. Dans `/osc`, ajoute un **OSC In** de la famille **DAT** et nomme-le `osc_in`. Un DAT affiche les messages reçus dans une table et peut appeler du Python à chaque réception. Le callback ci-dessous se charge de retrouver le paramètre correspondant dans le réseau.
-3. Sélectionne `osc_in` et appuie sur **P** pour afficher les paramètres. Dans **Connect**, règle **Active** sur Off le temps de préparer le callback, **Protocol** sur **Messaging (UDP)**, **Port** sur `9000` et **Local Address** sur `127.0.0.1` pour le test local. Dans **OSC Address Scope** de la page **Received Messages**, laisse `*` pour accepter les adresses du tableau. [Référence OSC In DAT](https://docs.derivative.ca/OSC_In_DAT)
-4. Repère le **Text DAT** référencé dans **Received Messages → Callbacks DAT**. Renomme-le `osc_in_callbacks`, ou crée un **Text DAT** de ce nom si le champ est vide. Indique `/osc/osc_in_callbacks` dans **Callbacks DAT** et sélectionne **Callbacks DAT** dans **Execute From**. Sur le Text DAT, clic droit → **Edit Contents…**, colle le code ci-dessous puis enregistre l’édition. Tu peux aussi utiliser **Edit Contents in Textport…**. [Éditer un DAT](https://docs.derivative.ca/DAT) · [Signature du callback](https://derivative.ca/UserGuide/OscinDAT_Class)
-5. Remets **Active** sur On. Aucun câble ne relie le récepteur à la composition. Chaque adresse est aiguillée par `onReceiveOSC` vers le paramètre du trait. Le callback suit les liens **Bind** jusqu’au paramètre maître s’il est en mode **Constant**. Si le fichier utilise une expression, un export ou un autre type de maître, le Textport indique la cible à examiner pour conserver son câblage. [Liaisons de paramètres](https://docs.derivative.ca/Binding)
+Dans le **Network Editor**, remonte à la racine `/`, puis entre dans le **Base COMP** `osc`. Sélectionne `osc_in` et appuie sur **P** pour voir ses paramètres. Dans **Connect**, vérifie **Active** sur On, **Protocol** sur **Messaging (UDP)**, **Port** sur `9000` et **Local Address** sur `127.0.0.1` pour un test local. Dans **Received Messages**, vérifie **OSC Address Scope** sur `*`, **Callbacks DAT** sur `osc_in_callbacks` et **Maximum Lines** sur `100` pour conserver des lots complets de 16 messages. [OSC In DAT](https://docs.derivative.ca/OSC_In_DAT)
 
-### Code à coller dans `osc_in_callbacks`
+Pour réinstaller le récepteur depuis le fichier original, ouvre `NewProject.2.toe` dans TouchDesigner puis **Dialogs → Textport and DATs** en mode Python. Charge le script d’installation avec `run_path`. Adapte le chemin si le dépôt est ailleurs et choisis un autre nom de sortie si le fichier livré existe déjà. [Script d’installation](../../visualization/setup_touchdesigner_osc.py)
 
 ```python
-from math import isfinite
-
-TRAITS = (
-    'enthousiasme', 'reveur', 'creativite', 'analytique', 'torture',
-    'bienveillance', 'autocritique', 'humour', 'confiance_en_soi',
-    'extraversion', 'impulsif',
-)
-ADRESSES = {f'/trait/{nom}': nom for nom in TRAITS}
-
-
-def _borner(valeur, maximum):
-    if type(valeur) not in (int, float) or not isfinite(valeur):
-        return None
-    return max(0.0, min(maximum, float(valeur)))
-
-
-def _cible(chemin, nom):
-    comp = op(chemin)
-    param = getattr(comp.par, nom, None) if comp is not None else None
-    # Écrire dans le maître préserve les liens avec le panneau de contrôle.
-    while getattr(param, 'mode', None) == ParMode.BIND:
-        param = param.bindMaster
-    if getattr(param, 'mode', None) != ParMode.CONSTANT:
-        print(f'OSC — vérifier la cible ou le maître de {chemin}.{nom}')
-        return None
-    return param
-
-
-def _intensites(noms, args):
-    if len(args) != len(noms):
-        return
-    valeurs = [_borner(valeur, 10.0) for valeur in args]
-    if None in valeurs:
-        return
-    cibles = [_cible(f'/trait_{nom}', 'Intensite') for nom in noms]
-    if any(cible is None for cible in cibles):
-        return
-    for cible, valeur in zip(cibles, valeurs):
-        cible.val = valeur
-
-
-def onReceiveOSC(dat, rowIndex, message, byteData, timeStamp, address, args, peer):
-    if address in ADRESSES:
-        _intensites((ADRESSES[address],), args)
-    elif address == '/profil':
-        _intensites(TRAITS, args)
-    elif len(args) == 1:
-        valeur = args[0]
-        if address == '/trait/impulsif/rejouer' and type(valeur) is int and valeur == 1:
-            apparition = op('/trait_impulsif/apparition')
-            rejouer = getattr(apparition.module, 'rejouer', None) if apparition is not None else None
-            if callable(rejouer):
-                rejouer()
-            else:
-                print('OSC — vérifier rejouer() dans /trait_impulsif/apparition')
-        elif address == '/trait/impulsif/boucle' and type(valeur) is int and valeur in (0, 1):
-            cible = _cible('/trait_impulsif', 'Boucle')
-            if cible is not None:
-                cible.val = bool(valeur)
-        elif address == '/finition/force':
-            force = _borner(valeur, 1.0)
-            if force is not None:
-                cible = _cible('/finition', 'Force')
-                if cible is not None:
-                    cible.val = force
+from runpy import run_path
+script = run_path(r"C:/Users/achil/Documents/projets_hack1robo/mindsight/visualization/setup_touchdesigner_osc.py")
+script["install"](r"C:/Users/achil/Documents/projets_hack1robo/mindsight/visualization/MindSight_Portrait_OSC_reconstruit.toe")
 ```
+
+Pour éditer le récepteur à la main, ouvre le Text DAT `/osc/osc_in_callbacks` avec **Edit Contents…** et utilise le fichier du callback comme référence. Les curseurs de `/controles` sont liés aux paramètres `Intensite` des traits. Le script écrit dans le maître du lien **Bind** et signale les cibles pilotées par expression ou export. [Callback](../../visualization/touchdesigner_osc_callbacks.py) · [Liaisons de paramètres](https://docs.derivative.ca/Binding)
 
 ## 4. Tester avant de lancer MindSight
 
@@ -151,20 +87,31 @@ python3.12 -m venv .venv
 | Symptôme | À vérifier |
 | --- | --- |
 | Le DAT reste vide | **Active**, protocole UDP, port `9000` et adresse de destination. Ferme une autre instance TouchDesigner qui écouterait déjà sur le même port, par exemple la constellation. |
+| Enthousiasme ou créativité disparaissent du journal | Vérifie **Maximum Lines** dans `osc_in`. `/osc/dimensions` conserve une ligne par dimension et affiche le dernier score reçu. |
 | La ligne arrive et le paramètre ne bouge pas | Référence **Callbacks DAT**, contenu enregistré, adresse exacte et erreurs du Textport. Vérifie le nom interne `Intensite` et le mode du paramètre maître. |
-| La valeur change et l’image semble fixe | Consulte `/apercu/out1` et `/composition/final`. La neige accumulée fond en environ 12 s. Pour voir l’effet d’`impulsif`, envoie aussi `/trait/impulsif/rejouer` avec l’entier `1`. |
+| La valeur change et l’image semble fixe | Consulte `/apercu/out1` et `/composition/final`. L’apparition démarre au premier calcul du rendu. La neige accumulée fond en environ 12 s. Pour revoir l’effet d’`impulsif`, envoie `/trait/impulsif/rejouer` avec l’entier `1`. |
 
-## 5. Relier la session MindSight
+## 5. Lancer MindSight avec le pont OSC
 
-1. Dans un premier terminal à la racine du dépôt, lance `python -m app.main` depuis ton environnement virtuel. Le mode réel utilise `OPENROUTER_API_KEY` dans `.env` ou dans l’environnement. Pour vérifier la connexion sans analyse, lance `python -m app.main --simulate`. Dans ce mode, le pont émet les cinq valeurs de repos. Pour faire varier le rendu avec des valeurs fictives, utilise le test direct ci-dessus.
-2. Ouvre l’URL du chat affichée par MindSight et relève `Session MindSight` dans le terminal du serveur. Elle identifie la conversation affichée.
-3. Dans un second terminal, lance le pont et remplace `IDENTIFIANT` par cette valeur. Si l’environnement n’est pas activé, remplace `python` par `.\.venv\Scripts\python.exe` sous Windows ou `./.venv/bin/python` sous macOS.
+Laisse le portrait ouvert dans TouchDesigner. À la racine du dépôt, lance cette commande dans PowerShell.
+
+```powershell
+.\.venv\Scripts\python.exe -m app.main --open --osc
+```
+
+Sous macOS, utilise `./.venv/bin/python -m app.main --open --osc`. Quand le chat s’ouvre, le terminal affiche la session suivie sur la ligne `OSC — session …`. Le pont envoie les scores à `127.0.0.1:9000` en UDP et suit la nouvelle session si tu cliques sur **Recommencer**. `Ctrl+C` dans le terminal arrête le chat et son pont.
+
+Le mode réel utilise `OPENROUTER_API_KEY` dans `.env` ou dans l’environnement. Avec `--simulate`, les seize valeurs de repos permettent de vérifier la connexion. Si tu as changé le port du DAT, passe le même numéro à `--osc-port`.
+
+### Raccorder un chat déjà ouvert
+
+Si tu as démarré le chat seul, relève `Session MindSight` dans le terminal du serveur. Dans un second terminal, remplace `IDENTIFIANT` par cette valeur.
 
 ```sh
 python -m visualization.mcp_to_osc --session-id IDENTIFIANT --mapping visualization/mapping_traits.yaml
 ```
 
-Le pont envoie la révision courante, puis les nouvelles révisions quand l’analyse avance. Ajoute `--once` pour un envoi de test. Si le terminal de MindSight affiche une autre URL MCP, ajoute `--mcp-url URL_AFFICHEE`. En cas de changement de port OSC, règle la même valeur sur le DAT et avec `--osc-port`. Si tu cliques sur **Recommencer** dans le chat, relance le pont avec le nouvel identifiant de session.
+Ajoute `--once` pour un envoi de test. Si le terminal de MindSight affiche une autre URL MCP, ajoute `--mcp-url URL_AFFICHEE`. En cas de changement de port OSC, règle la même valeur sur le DAT et avec `--osc-port`. En mode manuel, relance le pont avec le nouvel identifiant après **Recommencer**.
 
 ## 6. Lire la chaîne de rendu
 

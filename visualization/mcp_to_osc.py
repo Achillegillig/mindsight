@@ -3,7 +3,11 @@
 import argparse
 import asyncio
 import json
+import subprocess
+import sys
+from contextlib import contextmanager
 from pathlib import Path
+from threading import Lock
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
@@ -12,6 +16,8 @@ from pythonosc.udp_client import SimpleUDPClient
 import yaml
 
 MAPPING_PATH = Path(__file__).with_name("mapping.yaml")
+PORTRAIT_MAPPING_PATH = MAPPING_PATH.with_name("mapping_traits.yaml")
+DEFAULT_OSC_PORT = 9000
 OSC_FLOAT_MAX = 3.4028234663852886e38
 
 
@@ -67,12 +73,54 @@ async def bridge(url, session_id, channels, osc, *, interval=0.25, once=False):
                 await asyncio.sleep(interval)
 
 
+@contextmanager
+def follow_portrait_sessions(mcp_url, osc_port):
+    """Gère un pont OSC pour la dernière session ouverte dans le chat."""
+    lock = Lock()
+    process = None
+    closed = False
+
+    def stop():
+        if process is None or process.poll() is not None:
+            return
+        process.terminate()
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+
+    def follow(session_id):
+        nonlocal process
+        with lock:
+            if closed:
+                return
+            stop()
+            try:
+                process = subprocess.Popen([
+                    sys.executable, "-X", "utf8", "-m", "visualization.mcp_to_osc",
+                    "--session-id", session_id, "--mcp-url", mcp_url,
+                    "--mapping", str(PORTRAIT_MAPPING_PATH), "--osc-port", str(osc_port),
+                ])
+            except OSError as error:
+                print(f"Impossible de démarrer le pont OSC. {error}", file=sys.stderr, flush=True)
+            else:
+                print(f"OSC — session {session_id} vers 127.0.0.1:{osc_port} en UDP", flush=True)
+
+    try:
+        yield follow
+    finally:
+        with lock:
+            closed = True
+            stop()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--session-id", required=True, help="Identifiant affiché dans le terminal de MindSight.")
     parser.add_argument("--mcp-url", default="http://127.0.0.1:8001/mcp")
     parser.add_argument("--osc-host", default="127.0.0.1")
-    parser.add_argument("--osc-port", type=int, default=9000)
+    parser.add_argument("--osc-port", type=int, default=DEFAULT_OSC_PORT)
     parser.add_argument("--mapping", type=Path, default=MAPPING_PATH)
     parser.add_argument("--once", action="store_true", help="Transmettre une seule révision.")
     args = parser.parse_args()

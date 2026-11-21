@@ -6,6 +6,7 @@ import json
 import os
 import socket
 import subprocess
+from contextlib import ExitStack
 from functools import partial
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -88,11 +89,15 @@ if __name__ == "__main__":
     parser.add_argument("--model", default=DEFAULT_MODEL, help="Identifiant du modèle OpenRouter.")
     parser.add_argument("--simulate", action="store_true", help="Utiliser les relances préparées.")
     parser.add_argument("--open", action="store_true", help="Ouvrir Firefox dès que le serveur écoute.")
+    parser.add_argument("--osc", action="store_true", help="Relier la dernière session ouverte au portrait TouchDesigner.")
+    parser.add_argument("--osc-port", type=int, default=9000, help="Port UDP de TouchDesigner avec --osc.")
     parser.add_argument("--record", action="store_true", help="Enregistrer les tours dans test-results.jsonl.")
     parser.add_argument("--reasoning", action="store_true", help="Afficher les indices et les décisions d’attribution dans le chat.")
     parser.add_argument("--port", type=int, default=8000, help="Port du chat local (0 pour un port libre).")
     parser.add_argument("--mcp-port", type=int, default=8001, help="Port MCP local (0 pour un port libre).")
     args = parser.parse_args()
+    if args.osc and not 1 <= args.osc_port <= 65535:
+        parser.error("--osc-port doit être compris entre 1 et 65535.")
     if args.export:
         export_demo(args.export)
         print(f"Démo générée dans {args.export.resolve()}")
@@ -125,8 +130,15 @@ if __name__ == "__main__":
             reasoning=args.reasoning,
         ) as service:
             try:
-                handler = partial(ConversationHandler, service=service, speech=speech)
-                with create_server(handler, args.port) as server, serve_mcp(service, args.mcp_port) as mcp_url:
+                with ExitStack() as stack:
+                    mcp_url = stack.enter_context(serve_mcp(service, args.mcp_port))
+                    follow = None
+                    if args.osc:
+                        from visualization.mcp_to_osc import follow_portrait_sessions
+
+                        follow = stack.enter_context(follow_portrait_sessions(mcp_url, args.osc_port))
+                    handler = partial(ConversationHandler, service=service, speech=speech, on_session_created=follow)
+                    server = stack.enter_context(create_server(handler, args.port))
                     url = f"http://127.0.0.1:{server.server_port}/"
                     print(f"MindSight — {url}", flush=True)
                     print(f"MCP — {mcp_url}", flush=True)

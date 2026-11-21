@@ -107,11 +107,14 @@ class FixtureOpenRouter(BaseHTTPRequestHandler):
 class LiveFlowTests(unittest.TestCase):
     def test_portrait_mapping_sends_scaled_support_and_idle_as_osc_floats(self):
         channels = load_mapping(MAPPING_PATH.with_name("mapping_traits.yaml"))
+        dimensions = [dimension["id"] for dimension in load_catalog().dimensions]
+        self.assertEqual([channel["dimension"] for channel in channels], dimensions)
         snapshot = {"dimensions": [
-            {"id": "creativite", "appui": 0.75, "contre_appui": 0.5},
-            {"id": "analyse", "appui": 0.25},
-            {"id": "empathie", "appui": 0.5},
-            {"id": "assurance", "appui": 1.0},
+            {"id": "creativite", "appui": 0.4},
+            {"id": "analytique", "appui": 0.2},
+            {"id": "angoisse", "appui": 0.8},
+            {"id": "impulsivite", "appui": 1.0},
+            {"id": "force_de_proposition", "appui": 0.6},
             {"id": "extraversion", "appui": None},
         ]}
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as receiver:
@@ -121,12 +124,12 @@ class LiveFlowTests(unittest.TestCase):
                 forward_snapshot(snapshot, channels, osc)
             messages = [OscPacket(receiver.recv(1024)).messages[0].message for _ in channels]
 
+        expected = {
+            "creativite": 4.0, "analytique": 2.0, "angoisse": 8.0,
+            "impulsivite": 10.0, "force_de_proposition": 6.0,
+        }
         self.assertEqual([(message.address, message.params) for message in messages], [
-            ("/trait/creativite", [7.5]),
-            ("/trait/analytique", [2.5]),
-            ("/trait/bienveillance", [5.0]),
-            ("/trait/confiance_en_soi", [10.0]),
-            ("/trait/extraversion", [0.0]),
+            (f"/trait/{dimension}", [expected.get(dimension, 0.0)]) for dimension in dimensions
         ])
         self.assertTrue(all(type(message.params[0]) is float for message in messages))
 
@@ -153,46 +156,59 @@ class LiveFlowTests(unittest.TestCase):
                                  "https://westeurope.tts.speech.microsoft.com/cognitiveservices/v1")
                 self.assertIn(b"A &amp; B ?", request_to_azure.data)
 
-    def test_simulation_starts_through_the_cli(self):
-        with subprocess.Popen(
-            [sys.executable, "-X", "utf8", "-m", "app.main", "--simulate", "--reasoning",
-             "--port", "0", "--mcp-port", "0"],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
-        ) as process:
-            lines = Queue()
+    def test_simulation_starts_through_the_cli_and_osc_follows_new_sessions(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as receiver:
+            receiver.bind(("127.0.0.1", 0))
+            receiver.settimeout(10)
+            addresses = [channel["address"] for channel in load_mapping(MAPPING_PATH.with_name("mapping_traits.yaml"))]
 
-            def read_output():
-                for line in process.stdout:
-                    lines.put(line.strip())
-                lines.put("")
+            def check_portrait():
+                messages = [OscPacket(receiver.recv(1024)).messages[0].message for _ in addresses]
+                self.assertEqual([(msg.address, msg.params) for msg in messages], [(addr, [0.0]) for addr in addresses])
 
-            Thread(target=read_output, daemon=True).start()
-            try:
-                urls = {}
-                deadline = monotonic() + 15
-                while len(urls) < 2:
-                    line = lines.get(timeout=max(0, deadline - monotonic()))
-                    self.assertTrue(line, "MindSight s’est arrêté au démarrage.")
-                    name, separator, url = line.partition(" — ")
-                    if separator and name in ("MindSight", "MCP"):
-                        urls[name] = url
-                session = post(urls["MindSight"] + "api/conversation/session", {})
-                self.assertTrue(session["reasoning"])
-                response = post(urls["MindSight"] + "api/conversation/turn", {
-                    "session_id": session["session_id"], "request_id": "simulated",
-                    "messages": [session["opening"], {"role": "user", "content": "Un galet."}],
-                })
-                self.assertTrue(response["reply"])
-                self.assertEqual(response["analysis_status"], "simulated")
-                trace_url = urls["MindSight"] + f"api/conversation/session/{session['session_id']}/reasoning"
-                with urlopen(trace_url, timeout=5) as response:
-                    reasoning = json.load(response)
-                self.assertEqual(reasoning["analysis_status"], "simulated")
-                self.assertEqual(reasoning["turns"], [])
-                asyncio.run(bridge(urls["MCP"], session["session_id"], (), None, once=True))
-            finally:
-                process.terminate()
-                process.wait(timeout=5)
+            with subprocess.Popen(
+                [sys.executable, "-X", "utf8", "-m", "app.main", "--simulate", "--reasoning",
+                 "--port", "0", "--mcp-port", "0", "--osc", "--osc-port", str(receiver.getsockname()[1])],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+            ) as process:
+                lines = Queue()
+
+                def read_output():
+                    for line in process.stdout:
+                        lines.put(line.strip())
+                    lines.put("")
+
+                Thread(target=read_output, daemon=True).start()
+                try:
+                    urls = {}
+                    deadline = monotonic() + 15
+                    while len(urls) < 2:
+                        line = lines.get(timeout=max(0, deadline - monotonic()))
+                        self.assertTrue(line, "MindSight s’est arrêté au démarrage.")
+                        name, separator, url = line.partition(" — ")
+                        if separator and name in ("MindSight", "MCP"):
+                            urls[name] = url
+                    session = post(urls["MindSight"] + "api/conversation/session", {})
+                    self.assertTrue(session["reasoning"])
+                    check_portrait()
+                    response = post(urls["MindSight"] + "api/conversation/turn", {
+                        "session_id": session["session_id"], "request_id": "simulated",
+                        "messages": [session["opening"], {"role": "user", "content": "Un galet."}],
+                    })
+                    self.assertTrue(response["reply"])
+                    self.assertEqual(response["analysis_status"], "simulated")
+                    check_portrait()
+                    trace_url = urls["MindSight"] + f"api/conversation/session/{session['session_id']}/reasoning"
+                    with urlopen(trace_url, timeout=5) as response:
+                        reasoning = json.load(response)
+                    self.assertEqual(reasoning["analysis_status"], "simulated")
+                    self.assertEqual(reasoning["turns"], [])
+                    restarted = post(urls["MindSight"] + "api/conversation/session", {})
+                    self.assertNotEqual(restarted["session_id"], session["session_id"])
+                    check_portrait()
+                finally:
+                    process.terminate()
+                    process.wait(timeout=5)
 
     def test_export_contains_the_offline_chat(self):
         with TemporaryDirectory() as directory:

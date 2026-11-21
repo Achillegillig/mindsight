@@ -46,10 +46,15 @@ manuels restent synchronisés. Garde les tables etats, les liaisons du panneau
 et la chaîne de rendu en place. Si une cible est pilotée par une expression ou
 un export, repère la source existante avant de choisir où écrire.
 
-Le pont Python de MindSight envoie déjà des floats sur l’échelle 0–10 avec
---mapping visualization/mapping_traits.yaml. Il transmet la créativité, le
-trait analytique, la bienveillance, la confiance en soi et l’extraversion.
-Les six autres adresses doivent répondre aux commandes OSC manuelles.
+Utilise les dimensions d’app/dimensions.yaml pour les signaux MindSight.
+Le pont Python utilise --mapping visualization/mapping_traits.yaml pour
+émettre les seize adresses /trait/<dimension> sur l’échelle 0–10. Affiche le
+dernier score de chaque dimension dans /osc/dimensions. Les onze adresses
+artistiques restent valides, dont /trait/torture et /trait/impulsif, qui
+partagent leurs curseurs avec /trait/angoisse et /trait/impulsivite.
+Les dimensions passionne, force_de_proposition, domination, introversion et
+manque_de_confiance_en_soi ont une ligne dans la table. La scène ne contient
+pas de contrôle visuel dédié à ces cinq dimensions.
 
 Teste la réception depuis un émetteur OSC vers 127.0.0.1:9000. Envoie chaque
 adresse individuelle, puis /profil avec les onze valeurs 0.0 à 10.0 par pas

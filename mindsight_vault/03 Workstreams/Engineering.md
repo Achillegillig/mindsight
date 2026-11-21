@@ -157,7 +157,11 @@ un appui indirect pour la créativité, l’humour et la rêverie.
 | Animation | `app/mcp_server.py`, `visualization/mcp_to_osc.py` | Lire les révisions du portrait sur MCP et envoyer les valeurs configurées à TouchDesigner. |
 | Démarrage et accès au modèle | `app/main.py`, `app/openrouter.py` | Démarrer le serveur local et envoyer les requêtes à OpenRouter. |
 
-Au démarrage, MindSight affiche les adresses du chat et de MCP. Ouvrir le chat,
+Avec le portrait ouvert dans TouchDesigner, `python3 -m app.main --open --osc`
+lance le chat et démarre le pont dès l’ouverture d’une session. Le pont suit
+la nouvelle session après **Recommencer** et s’arrête avec MindSight.
+
+Pour raccorder le pont à un chat lancé séparément, ouvrir le chat,
 puis prendre l’identifiant de session affiché dans le terminal du serveur.
 Dans un second terminal, lancer le pont pour le portrait en remplaçant
 `IDENTIFIANT` par cette valeur.
@@ -173,10 +177,12 @@ avec `--mcp-url`. **Recommencer** crée une autre session. Indiquer alors son
 nouvel identifiant au pont. Les sessions sont conservées jusqu’à l’arrêt du
 serveur.
 
-Le mapping du portrait transmet cinq appuis sur l’échelle `0–10`. Le mapping
-par défaut `visualization/mapping.yaml` sert à la constellation (`/ouverture`
-et `/energie` sur l’échelle `0–1`). Le guide donne les onze adresses du
-portrait, les étapes de configuration du DAT et les essais à faire. [Brancher le portrait dans TouchDesigner](<../04 Resources/MindSight - Brancher le portrait dans TouchDesigner.md>)
+Le mapping du portrait transmet les seize dimensions d’`app/dimensions.yaml`
+sur l’échelle `0–10`. Onze pilotent les contrôles artistiques. Les cinq autres
+sont visibles dans `/osc/dimensions`. Le mapping par défaut `visualization/mapping.yaml`
+correspond au prototype de constellation (`/ouverture` et `/energie` sur
+l’échelle `0–1`). Le guide relie les adresses du portrait au `.toe` et donne
+les tests de réception. [Brancher le portrait dans TouchDesigner](<../04 Resources/MindSight - Brancher le portrait dans TouchDesigner.md>)
 
 Modifier `app/dimensions.yaml` pour changer les dimensions ou les poids, puis
 redémarrer MindSight. Modifier le fichier de mapping utilisé pour ajuster les
