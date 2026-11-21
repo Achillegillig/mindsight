@@ -3,12 +3,14 @@
 import json
 import logging
 import os
+import wave
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler
+from io import BytesIO
 from threading import Lock
 from uuid import uuid4
 
@@ -27,10 +29,14 @@ STATIC = {
     "/static/chat.css": ("chat.css", "text/css"),
     "/static/chat.js": ("chat.js", "text/javascript"),
     "/static/voice.js": ("voice.js", "text/javascript"),
+    "/static/dictation.js": ("dictation.js", "text/javascript"),
+    "/static/microphone.js": ("microphone.js", "text/javascript"),
 }
 TURN_PATH = "/api/conversation/turn"
 SESSION_PATH = "/api/conversation/session"
 SPEECH_PATH = "/api/speech"
+TRANSCRIPTION_PATH = "/api/speech/transcribe"
+MAX_AUDIO_BYTES = 44 + 30 * 16000 * 2
 MAX_BODY_BYTES = 256 * 1024
 RECORD_PATH = DIRECTORY.parent / "test-results.jsonl"
 RECORD_LOCK = Lock()
@@ -334,9 +340,11 @@ class ConversationService:
 
 
 class ConversationHandler(BaseHTTPRequestHandler):
-    def __init__(self, *args, service, speech=None, on_session_created=None):
+    def __init__(self, *args, service, speech=None, transcription=None, auto=False, on_session_created=None):
         self.service = service
         self.speech = speech
+        self.transcription = transcription
+        self.auto = auto
         self.on_session_created = on_session_created
         super().__init__(*args)
 
@@ -354,7 +362,12 @@ class ConversationHandler(BaseHTTPRequestHandler):
         if self.path == "/api/conversation/opening":
             self.send_json(200, OPENING)
         elif self.path == "/api/conversation/mode":
-            self.send_json(200, {"model": self.service.model, "azureSpeech": self.speech is not None})
+            self.send_json(200, {
+                "model": self.service.model,
+                "azureSpeech": self.speech is not None,
+                "azureTranscription": self.transcription is not None,
+                "auto": self.auto,
+            })
         elif self.path.startswith(f"{SESSION_PATH}/") and self.path.endswith("/scores"):
             session_id = self.path.removeprefix(f"{SESSION_PATH}/").removesuffix("/scores")
             try:
@@ -378,6 +391,9 @@ class ConversationHandler(BaseHTTPRequestHandler):
             self.send_json(404, {"detail": "Page introuvable."})
 
     def do_POST(self):
+        if self.path == TRANSCRIPTION_PATH:
+            self.transcribe_audio()
+            return
         if self.path == SESSION_PATH:
             session_id = self.service.create_session()
             self.log_message("Session MindSight : %s", session_id)
@@ -432,6 +448,39 @@ class ConversationHandler(BaseHTTPRequestHandler):
             self.send_json(502, {"detail": str(error)})
             return
         self.send_json(200, result)
+
+    def transcribe_audio(self):
+        if self.transcription is None:
+            self.send_json(503, {"detail": "La dictée Azure n’est pas configurée."})
+            return
+        if self.headers.get_content_type() != "audio/wav":
+            self.send_json(415, {"detail": "Un enregistrement WAV est attendu."})
+            return
+        try:
+            size = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            size = 0
+        if not 44 < size <= MAX_AUDIO_BYTES:
+            self.send_json(413, {"detail": "L’enregistrement doit durer 30 secondes au maximum."})
+            return
+        audio = self.rfile.read(size)
+        try:
+            with wave.open(BytesIO(audio), "rb") as recording:
+                frames = recording.getnframes()
+                if (recording.getnchannels(), recording.getsampwidth(), recording.getframerate()) != (1, 2, 16000):
+                    raise ValueError
+                if len(audio) != size or not 0 < frames <= 30 * 16000 or len(recording.readframes(frames)) != frames * 2:
+                    raise ValueError
+        except (wave.Error, EOFError, ValueError):
+            self.send_json(422, {"detail": "L’enregistrement WAV est invalide."})
+            return
+        try:
+            text = self.transcription(audio)
+        except SpeechError as error:
+            self.log_error("%s", error)
+            self.send_json(502, {"detail": str(error)})
+            return
+        self.send_json(200, {"text": text})
 
     def speak(self, payload):
         text = payload.get("text") if isinstance(payload, dict) else None

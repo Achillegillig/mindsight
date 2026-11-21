@@ -11,7 +11,10 @@ from functools import partial
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from .azure_speech import DEFAULT_STYLE, DEFAULT_VOICE, synthesize
+from .azure_speech import (
+    DEFAULT_STYLE, DEFAULT_VOICE, MAI_TRANSCRIPTION_MODEL, mai_transcription_url,
+    synthesize, transcribe, transcribe_with_mai,
+)
 from .dialogue import CONFIG, OPENING, SKIP_PATTERN
 from .openrouter import DEFAULT_MODEL
 from .prompt_config import DIRECTORY
@@ -46,7 +49,7 @@ def export_demo(destination):
     }, ensure_ascii=False)
     data = data.replace("<", "\\u003c")
     page = page.replace('<link rel="stylesheet" href="/static/chat.css">', f"<style>{styles}</style>")
-    for filename in ("voice.js", "chat.js"):
+    for filename in ("voice.js", "dictation.js", "chat.js"):
         page = page.replace(f'<script defer src="/static/{filename}"></script>', "")
     page = page.replace(
         "</body>",
@@ -89,6 +92,7 @@ if __name__ == "__main__":
     parser.add_argument("--model", default=DEFAULT_MODEL, help="Identifiant du modèle OpenRouter.")
     parser.add_argument("--simulate", action="store_true", help="Utiliser les relances préparées.")
     parser.add_argument("--open", action="store_true", help="Ouvrir Firefox dès que le serveur écoute.")
+    parser.add_argument("--auto", action="store_true", help="Ouvrir le chat en mode vocal automatique.")
     parser.add_argument("--osc", action="store_true", help="Relier la dernière session ouverte au portrait TouchDesigner.")
     parser.add_argument("--osc-port", type=int, default=9000, help="Port UDP de TouchDesigner avec --osc.")
     parser.add_argument("--record", action="store_true", help="Enregistrer les tours dans test-results.jsonl.")
@@ -96,6 +100,8 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=8000, help="Port du chat local (0 pour un port libre).")
     parser.add_argument("--mcp-port", type=int, default=8001, help="Port MCP local (0 pour un port libre).")
     args = parser.parse_args()
+    if args.auto and args.export:
+        parser.error("--auto nécessite le serveur MindSight.")
     if args.osc and not 1 <= args.osc_port <= 65535:
         parser.error("--osc-port doit être compris entre 1 et 65535.")
     if args.export:
@@ -110,8 +116,23 @@ if __name__ == "__main__":
         voice = config_value("AZURE_SPEECH_VOICE") or DEFAULT_VOICE
         style = config_value("AZURE_SPEECH_STYLE") or (DEFAULT_STYLE if voice == DEFAULT_VOICE else None)
         speech = None
+        transcription = None
         if speech_key and speech_region:
             speech = partial(synthesize, speech_key, speech_region, voice, style=style)
+            transcription = partial(transcribe, speech_key, speech_region)
+        transcription_model = config_value("AZURE_SPEECH_TRANSCRIPTION_MODEL") or "short"
+        if transcription_model.casefold() == MAI_TRANSCRIPTION_MODEL.casefold():
+            if not speech_key or not speech_region:
+                parser.error("MAI-Transcribe-2 nécessite AZURE_SPEECH_KEY et AZURE_SPEECH_REGION.")
+            try:
+                url = mai_transcription_url(config_value("AZURE_SPEECH_ENDPOINT"))
+            except ValueError as error:
+                parser.error(str(error))
+            transcription = partial(transcribe_with_mai, speech_key, speech_region, url)
+        elif transcription_model.casefold() != "short":
+            parser.error("AZURE_SPEECH_TRANSCRIPTION_MODEL doit valoir short ou MAI-Transcribe-2.")
+        if args.auto and transcription is None:
+            parser.error("--auto nécessite AZURE_SPEECH_KEY et AZURE_SPEECH_REGION.")
 
         os.environ.setdefault("HAYSTACK_TELEMETRY_ENABLED", "false")
         from .mcp_server import serve_mcp
@@ -137,7 +158,10 @@ if __name__ == "__main__":
                         from visualization.mcp_to_osc import follow_portrait_sessions
 
                         follow = stack.enter_context(follow_portrait_sessions(mcp_url, args.osc_port))
-                    handler = partial(ConversationHandler, service=service, speech=speech, on_session_created=follow)
+                    handler = partial(
+                        ConversationHandler, service=service, speech=speech,
+                        transcription=transcription, auto=args.auto, on_session_created=follow,
+                    )
                     server = stack.enter_context(create_server(handler, args.port))
                     url = f"http://127.0.0.1:{server.server_port}/"
                     print(f"MindSight — {url}", flush=True)
@@ -146,7 +170,7 @@ if __name__ == "__main__":
                     print(f"Mode — {mode}.", flush=True)
                     if args.record:
                         print(f"Journal de test — {RECORD_PATH}", flush=True)
-                    if args.open:
+                    if args.open or args.auto:
                         open_firefox(url)
                     server.serve_forever()
             except KeyboardInterrupt:

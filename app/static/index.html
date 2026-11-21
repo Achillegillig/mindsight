@@ -6,6 +6,7 @@
   <title>MindSight</title>
   <link rel="stylesheet" href="/static/chat.css">
   <script defer src="/static/voice.js"></script>
+  <script defer src="/static/dictation.js"></script>
   <script defer src="/static/chat.js"></script>
 </head>
 <body>
@@ -17,34 +18,44 @@
     <div class="session-layout">
       <div class="chat-column">
         <div class="voice-controls">
-          <button id="voice-toggle" type="button" disabled>Activer la voix</button>
-          <button id="voice-replay" type="button" disabled>Réécouter</button>
+          <button id="voice-toggle" type="button" aria-label="Voix" aria-pressed="false" disabled>Voix <span aria-hidden="true">désactivée</span></button>
           <p id="voice-status" role="status"></p>
         </div>
         <ol id="messages" aria-label="Conversation" aria-live="polite"></ol>
-        <form>
-          <label for="answer">Ta réponse</label>
-          <textarea id="answer" name="answer" rows="3" maxlength="2000" required></textarea>
-          <button id="send" type="submit" disabled>Envoyer</button>
-        </form>
-        <p id="status" role="status"></p>
-        <section id="reasoning" aria-labelledby="reasoning-title" hidden>
-          <h2 id="reasoning-title">Analyse des traits</h2>
+        <button id="voice-replay" type="button" hidden>Réécouter la question</button>
+        <details id="reasoning" hidden>
+          <summary>Voir les indices</summary>
           <p id="reasoning-status" role="status"></p>
           <h3>Indices et interprétations par tour</h3>
           <div id="reasoning-turns"></div>
           <h3>État des attributions</h3>
           <p class="reasoning-note">Les valeurs reflètent les indices recueillis dans cet échange. Le calcul retient l’indice le plus fort de chaque épisode.</p>
           <div id="reasoning-dimensions"></div>
-        </section>
+        </details>
+        <div class="composer">
+          <div id="auto-controls" hidden>
+            <button id="auto-toggle" type="button" disabled>Démarrer l’échange vocal</button>
+            <p id="auto-status" role="status"></p>
+          </div>
+          <form>
+            <label for="answer">Ta réponse</label>
+            <textarea id="answer" name="answer" rows="2" maxlength="2000" required></textarea>
+            <button id="send" type="submit" disabled>Envoyer</button>
+            <button id="dictate" type="button" hidden>Dicter</button>
+            <div id="microphone-level" hidden>
+              <span id="microphone-name">Microphone</span>
+              <meter id="microphone-meter" min="0" max="1" value="0" aria-label="Niveau du microphone"></meter>
+              <p id="auto-audio-debug" hidden></p>
+            </div>
+            <p id="dictation-status" role="status"></p>
+          </form>
+          <p id="status" role="status"></p>
+        </div>
       </div>
       <section id="trait-scores" aria-labelledby="trait-scores-title" hidden>
-        <h2 id="trait-scores-title">Scores des traits</h2>
+        <h2 id="trait-scores-title">Synthèse de la conversation</h2>
         <p id="trait-scores-status" role="status"></p>
-        <table id="trait-scores-table" aria-describedby="trait-scores-note" hidden>
-          <thead><tr><th scope="col">Trait</th><th scope="col">Score sur 10</th><th scope="col">Indices</th></tr></thead>
-          <tbody></tbody>
-        </table>
+        <ul id="trait-scores-list" aria-describedby="trait-scores-note" hidden></ul>
         <p id="trait-scores-note" class="reasoning-note" hidden>Le score reflète les indices d’appui recueillis pendant cette conversation. Un 0 indique qu’aucun appui n’a été retenu pour ce trait.</p>
       </section>
     </div>

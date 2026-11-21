@@ -1,11 +1,13 @@
 function createQuestionVoice() {
   const toggle = document.querySelector("#voice-toggle");
+  const toggleState = toggle.querySelector("span");
   const replay = document.querySelector("#voice-replay");
   const status = document.querySelector("#voice-status");
   const synthesis = window.speechSynthesis;
   const browserVoice = Boolean(synthesis && window.SpeechSynthesisUtterance);
   let azureVoice = false;
   let enabled = false;
+  let automatic = false;
   let question = "";
   let currentSpeech = null;
   let request = null;
@@ -26,79 +28,102 @@ function createQuestionVoice() {
     }
   }
 
-  function speakInBrowser(azureError = "") {
+  function speakInBrowser(text, signal, azureError = "") {
     if (!browserVoice) {
       status.textContent = azureError || "Lecture vocale indisponible.";
-      return;
+      return false;
     }
     const frenchVoices = synthesis.getVoices().filter((voice) => /^fr(?:-|_|$)/i.test(voice.lang));
     const voice = frenchVoices.find((voice) => voice.localService) ?? frenchVoices[0];
-    const speech = new window.SpeechSynthesisUtterance(question);
+    const speech = new window.SpeechSynthesisUtterance(text);
     speech.lang = voice?.lang ?? "fr-FR";
     if (voice) speech.voice = voice;
 
-    speech.onend = () => {
-      if (currentSpeech === speech) currentSpeech = null;
-    };
-    speech.onerror = () => {
-      if (currentSpeech !== speech) return;
-      currentSpeech = null;
-      status.textContent = azureError
-        ? `${azureError} La voix du navigateur a également échoué.`
-        : "Lecture indisponible. Vérifie les voix françaises disponibles dans ton navigateur.";
-    };
-    currentSpeech = speech;
-    synthesis.speak(speech);
+    return new Promise((resolve) => {
+      currentSpeech = speech;
+      speech.onend = () => resolve(true);
+      speech.onerror = () => {
+        if (!signal.aborted) {
+          status.textContent = azureError
+            ? `${azureError} La voix du navigateur a également échoué.`
+            : "Lecture indisponible. Vérifie les voix françaises disponibles dans ton navigateur.";
+        }
+        resolve(false);
+      };
+      signal.addEventListener("abort", () => resolve(false), { once: true });
+      try {
+        synthesis.speak(speech);
+      } catch {
+        resolve(false);
+      }
+    });
   }
 
-  async function speak() {
-    if (!enabled || !question) return;
-
+  async function play(text, useCache = false) {
     stop();
     status.textContent = "";
-    if (!azureVoice) {
-      speakInBrowser();
-      return;
-    }
-
     const playback = new AbortController();
     request = playback;
+    const { signal } = playback;
+    const timeout = setTimeout(() => {
+      if (request === playback) stop();
+    }, 60000);
     let azureError = "Voix Azure indisponible.";
     try {
-      if (!cachedAudio) {
+      if (!azureVoice) return await speakInBrowser(text, signal);
+      let clip = useCache ? cachedAudio : null;
+      if (!clip) {
         const response = await fetch("/api/speech", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: question }),
-          signal: playback.signal,
+          body: JSON.stringify({ text }),
+          signal,
         });
         if (!response.ok) {
           const { detail } = await response.json();
           if (typeof detail === "string") azureError = detail;
           throw new Error(azureError);
         }
-        const result = await response.blob();
-        if (playback.signal.aborted) return;
-        cachedAudio = result;
+        clip = await response.blob();
+        if (signal.aborted) return false;
+        if (useCache) cachedAudio = clip;
       }
-      audioUrl = URL.createObjectURL(cachedAudio);
+      audioUrl = URL.createObjectURL(clip);
       audio = new Audio(audioUrl);
-      await audio.play();
+      const player = audio;
+      return await new Promise((resolve, reject) => {
+        player.addEventListener("ended", () => resolve(true), { once: true });
+        player.addEventListener("error", () => reject(new Error(azureError)), { once: true });
+        signal.addEventListener("abort", () => resolve(false), { once: true });
+        player.play().catch(reject);
+      });
     } catch {
-      if (playback.signal.aborted) return;
-      stop();
-      cachedAudio = null;
+      if (signal.aborted) return false;
+      audio?.pause();
+      if (useCache) cachedAudio = null;
       status.textContent = `${azureError} Lecture avec la voix du navigateur.`;
-      speakInBrowser(azureError);
+      return await speakInBrowser(text, signal, azureError);
     } finally {
-      if (request === playback) request = null;
+      clearTimeout(timeout);
+      if (request === playback) {
+        request = null;
+        currentSpeech = null;
+        if (audioUrl) URL.revokeObjectURL(audioUrl);
+        audio = null;
+        audioUrl = "";
+      }
     }
+  }
+
+  function speak() {
+    if (enabled && question && !automatic) void play(question, true);
   }
 
   function updateControls() {
     toggle.disabled = !browserVoice && !azureVoice;
-    toggle.textContent = enabled ? "Couper la voix" : "Activer la voix";
-    replay.disabled = !enabled || !question;
+    toggle.setAttribute("aria-pressed", String(enabled));
+    toggleState.textContent = enabled ? "activée" : "désactivée";
+    replay.hidden = !enabled || !question;
   }
 
   updateControls();
@@ -126,6 +151,11 @@ function createQuestionVoice() {
       updateControls();
       speak();
     },
+    setAutomatic(value) {
+      automatic = value;
+    },
+    play,
+    stopPlayback: stop,
     reset() {
       stop();
       question = "";

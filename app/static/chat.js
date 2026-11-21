@@ -2,6 +2,11 @@ const form = document.querySelector("form");
 const answer = document.querySelector("#answer");
 const send = document.querySelector("#send");
 const reset = document.querySelector("#reset");
+const replay = document.querySelector("#voice-replay");
+const autoControls = document.querySelector("#auto-controls");
+const autoToggle = document.querySelector("#auto-toggle");
+const autoStatus = document.querySelector("#auto-status");
+const chatColumn = form.closest(".chat-column");
 const messages = document.querySelector("#messages");
 const status = document.querySelector("#status");
 const reasoning = document.querySelector("#reasoning");
@@ -11,8 +16,7 @@ const reasoningDimensions = document.querySelector("#reasoning-dimensions");
 const page = document.querySelector("main");
 const scoresPanel = document.querySelector("#trait-scores");
 const scoresStatus = document.querySelector("#trait-scores-status");
-const scoresTable = document.querySelector("#trait-scores-table");
-const scoresBody = scoresTable.querySelector("tbody");
+const scoresList = document.querySelector("#trait-scores-list");
 const scoresNote = document.querySelector("#trait-scores-note");
 const questionVoice = createQuestionVoice();
 let history = [];
@@ -21,7 +25,10 @@ let sessionId;
 let pendingRequest;
 let reasoningRun = 0;
 let scoresRun = 0;
+let busy = false;
+let autoRun;
 const demo = document.querySelector("#demo-data");
+const dictation = demo ? null : createDictation(answer, send, questionVoice);
 
 const analysisLabels = {
   idle: "L’analyse commencera après ta première réponse.",
@@ -166,20 +173,22 @@ async function refreshReasoning(targetTurn = 0) {
 }
 
 function renderScores(snapshot) {
-  const evidenceLabels = {
-    sans_indice: "Aucun indice",
-    documentee: "Indices relevés",
-  };
-  scoresBody.replaceChildren(...snapshot.traits.map((trait) => {
-    const row = document.createElement("tr");
-    const label = textElement("th", trait.label);
-    label.scope = "row";
-    row.append(label, textElement("td", formatNumber.format(trait.score)),
-      textElement("td", evidenceLabels[trait.status]));
+  scoresList.replaceChildren(...snapshot.traits.map((trait) => {
+    const row = document.createElement("li");
+    const label = textElement("strong", trait.label);
+    const score = textElement("span", `${formatNumber.format(trait.score)} / 10`);
+    const bar = document.createElement("meter");
+    bar.max = 10;
+    bar.value = trait.score;
+    bar.setAttribute("aria-hidden", "true");
+    const count = trait.episode_count;
+    const evidence = textElement("span", count === 0 ? "Aucun indice retenu"
+      : `${count} ${count === 1 ? "épisode avec indice" : "épisodes avec indices"}`);
+    row.append(label, score, bar, evidence);
     return row;
   }));
   scoresStatus.textContent = analysisLabels[snapshot.analysis_status];
-  scoresTable.hidden = false;
+  scoresList.hidden = false;
   scoresNote.hidden = false;
 }
 
@@ -201,7 +210,7 @@ async function showFinalScores() {
       if (run !== scoresRun) return;
       if (snapshot.ready) {
         renderScores(snapshot);
-        return;
+        return snapshot;
       }
     } catch {
       if (run === scoresRun) scoresStatus.textContent = "Impossible de charger les scores.";
@@ -245,7 +254,7 @@ async function getReply(messages) {
   return result;
 }
 
-function append(message) {
+function append(message, isQuestion = false) {
   const item = document.createElement("li");
   item.dataset.role = message.role;
   const author = document.createElement("strong");
@@ -253,17 +262,95 @@ function append(message) {
   const content = document.createElement("p");
   content.textContent = message.content;
   item.append(author, content);
+  if (isQuestion) {
+    messages.querySelector(".latest-question")?.classList.remove("latest-question");
+    item.classList.add("latest-question");
+    item.append(replay);
+  }
   messages.append(item);
+  return item;
 }
 
-function setBusy(busy) {
+function updateAutoControls() {
+  autoToggle.disabled = !autoRun && (busy || finished || !history.length || !dictation?.supported);
+  autoToggle.textContent = autoRun ? "Arrêter l’échange vocal" : "Démarrer l’échange vocal";
+  chatColumn.classList.toggle("automatic", Boolean(autoRun));
+}
+
+function stopAutomatic(message = "") {
+  if (autoRun) {
+    autoRun = undefined;
+    questionVoice.stopPlayback();
+    questionVoice.setAutomatic(false);
+    if (dictation.active) dictation.cancel();
+  }
+  autoStatus.textContent = message;
+  updateAutoControls();
+}
+
+async function playAutomatically(run, text) {
+  if (autoRun !== run) return false;
+  const played = await questionVoice.play(text);
+  if (autoRun !== run) return false;
+  if (!played) stopAutomatic("Lecture audio impossible. Tu peux relancer l’échange vocal ou continuer au clavier.");
+  return played;
+}
+
+async function askAutomatically(run, question) {
+  autoStatus.textContent = "MindSight pose la question…";
+  if (!await playAutomatically(run, question)) return;
+  autoStatus.textContent = "";
+  const ready = await dictation.record(true);
+  if (autoRun !== run) return;
+  if (ready) await submitAnswer();
+  else stopAutomatic("Échange vocal arrêté. Tu peux le relancer ou écrire ta réponse.");
+}
+
+function spokenResults(snapshot) {
+  if (!snapshot || ["failed", "simulated"].includes(snapshot.analysis_status)) {
+    return ["La synthèse des traits n’est pas disponible pour cette conversation."];
+  }
+  const traits = snapshot.traits.filter((trait) => trait.episode_count > 0)
+    .sort((left, right) => right.score - left.score);
+  if (!traits.length) return ["Aucun indice suffisant n’a été retenu pour les traits analysés."];
+  const intro = snapshot.analysis_status === "partial"
+    ? "L’analyse est partielle. Voici les traits pour lesquels des indices ont été relevés."
+    : "Voici les traits pour lesquels des indices ont été relevés dans cet échange.";
+  const clips = [intro];
+  for (const trait of traits) {
+    const sentence = `${trait.label}, ${formatNumber.format(trait.score)} sur 10.`;
+    if (clips.at(-1).length + sentence.length + 1 > 450) clips.push(sentence);
+    else clips[clips.length - 1] += ` ${sentence}`;
+  }
+  return clips;
+}
+
+async function concludeAutomatically(run, closing, scores) {
+  autoStatus.textContent = "MindSight termine l’échange…";
+  if (!await playAutomatically(run, closing)) return;
+  autoStatus.textContent = "Préparation de la synthèse…";
+  const snapshot = await scores;
+  if (autoRun !== run) return;
+  autoStatus.textContent = "MindSight lit la synthèse…";
+  for (const clip of spokenResults(snapshot)) {
+    if (!await playAutomatically(run, clip)) return;
+  }
+  stopAutomatic("Échange vocal terminé.");
+}
+
+function setBusy(value) {
+  busy = value;
   reset.disabled = busy;
   form.hidden = finished;
   answer.readOnly = busy || finished;
   send.disabled = busy || finished || history.length === 0;
+  dictation?.setBlocked(send.disabled);
+  updateAutoControls();
 }
 
 async function start() {
+  stopAutomatic();
+  dictation?.cancel();
   questionVoice.reset();
   setBusy(true);
   status.textContent = "";
@@ -274,11 +361,12 @@ async function start() {
     scoresRun++;
     scoresPanel.hidden = true;
     page.classList.remove("with-scores");
-    scoresTable.hidden = true;
+    scoresList.hidden = true;
     scoresNote.hidden = true;
-    scoresBody.replaceChildren();
+    scoresList.replaceChildren();
     scoresStatus.textContent = "";
     reasoning.hidden = !showReasoning;
+    reasoning.open = false;
     reasoningTurns.replaceChildren();
     reasoningDimensions.replaceChildren();
     reasoningStatus.textContent = "";
@@ -287,7 +375,7 @@ async function start() {
     history = [opening];
     finished = false;
     messages.replaceChildren();
-    append(opening);
+    append(opening, true);
     questionVoice.setQuestion(opening.content);
     answer.value = "";
   } catch {
@@ -305,38 +393,78 @@ answer.addEventListener("keydown", (event) => {
   }
 });
 
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
+async function submitAnswer() {
   const content = answer.value.trim();
-  if (!content || send.disabled) return;
+  if (!content || send.disabled || dictation?.active) return;
 
+  const run = autoRun;
+  let next;
   const userMessage = { role: "user", content };
   if (!demo && pendingRequest?.content !== content) {
     pendingRequest = { id: crypto.randomUUID(), content };
   }
   setBusy(true);
-  status.textContent = "Analyse en cours…";
+  status.textContent = "";
+  const submitted = append(userMessage);
+  const waiting = textElement("li", "MindSight prépare la suite…");
+  waiting.className = "waiting";
+  messages.append(waiting);
+  waiting.scrollIntoView({ block: "nearest" });
   try {
     const { reply, done } = await getReply([...history, userMessage]);
     finished = done;
     const assistantMessage = { role: "assistant", content: reply };
     history.push(userMessage, assistantMessage);
     pendingRequest = undefined;
-    append(userMessage);
-    append(assistantMessage);
-    if (done) void showFinalScores();
-    else questionVoice.setQuestion(reply);
+    waiting.remove();
+    if (done) messages.querySelector(".latest-question")?.classList.remove("latest-question");
+    const response = append(assistantMessage, !done);
+    if (done) {
+      const scores = showFinalScores();
+      if (run && autoRun === run) next = () => concludeAutomatically(run, reply, scores);
+    } else {
+      questionVoice.setQuestion(reply);
+      if (run && autoRun === run) next = () => askAutomatically(run, reply);
+    }
     void refreshReasoning((history.length - 1) / 2);
     answer.value = "";
     status.textContent = finished ? "Conversation terminée." : "";
+    response.scrollIntoView({ block: "nearest" });
   } catch (error) {
+    if (run && autoRun === run) stopAutomatic("Échange vocal arrêté. Tu peux renvoyer ta réponse.");
+    submitted.remove();
+    waiting.remove();
     status.textContent = error instanceof TypeError || !error.message
       ? "La relance a échoué. Ta réponse est conservée."
       : error.message + " Ta réponse est conservée.";
   } finally {
     setBusy(false);
-    if (!finished) answer.focus();
+    if (!finished && !autoRun) answer.focus({ preventScroll: true });
   }
+  if (next) void next();
+}
+
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (send.disabled || !answer.value.trim()) return;
+  if (autoRun) stopAutomatic();
+  void submitAnswer();
+});
+
+autoToggle.addEventListener("click", () => {
+  if (autoRun) {
+    stopAutomatic("Échange vocal arrêté.");
+    return;
+  }
+  if (answer.value.trim() || dictation.active) {
+    autoStatus.textContent = "Envoie ou efface ton brouillon avant de démarrer l’échange vocal.";
+    return;
+  }
+  const run = {};
+  autoRun = run;
+  questionVoice.setAutomatic(true);
+  updateAutoControls();
+  void askAutomatically(run, history.at(-1).content);
 });
 
 reset.addEventListener("click", async () => {
@@ -348,9 +476,15 @@ start();
 if (!demo) {
   fetch("/api/conversation/mode")
     .then((response) => response.json())
-    .then(({ model, azureSpeech }) => {
+    .then(({ model, azureSpeech, azureTranscription, auto }) => {
       questionVoice.setAzureVoice(azureSpeech);
-      document.querySelector("#mode").textContent = model ? `OpenRouter · ${model}` : "Conversation simulée";
+      dictation.setAvailable(azureTranscription);
+      autoControls.hidden = !auto;
+      if (auto && !dictation.supported) {
+        autoStatus.textContent = "L’échange vocal requiert un navigateur compatible sur HTTPS ou localhost.";
+      }
+      updateAutoControls();
+      document.querySelector("#mode").textContent = model ? "" : "Conversation simulée";
     })
     .catch(() => {
       document.querySelector("#mode").textContent = "Serveur indisponible";

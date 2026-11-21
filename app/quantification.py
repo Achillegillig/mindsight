@@ -116,13 +116,14 @@ def quantify_dimensions(indices, catalog, *, include_calculation=False):
 
 
 def scores_on_ten(dimensions):
-    """Expose les champs utiles au tableau final et au futur raccord."""
+    """Expose les champs utiles à la synthèse finale."""
     return [
         {
             "id": item["id"],
             "label": item["label"],
             "score": item["score"],
             "status": item["status"],
+            "episode_count": item["episode_count"],
         }
         for item in dimensions
     ]
