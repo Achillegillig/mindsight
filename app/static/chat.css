@@ -27,3 +27,7 @@ button:disabled { opacity: .6; }
 #reasoning ol { display: block; padding-left: 1.4rem; list-style: decimal; }
 #reasoning ul { padding-left: 1.15rem; }
 .reasoning-note { color: #4c564c; font-size: .9rem; }
+
+.voice-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-top: 1rem; }
+#voice-status { margin: 0; }
+#voice-status:empty { display: none; }

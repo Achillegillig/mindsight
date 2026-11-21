@@ -12,6 +12,7 @@ from tempfile import TemporaryDirectory
 from threading import Event, Thread
 from time import monotonic, sleep
 import unittest
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -19,6 +20,7 @@ from haystack_integrations.components.generators.openrouter import OpenRouterCha
 from pythonosc.osc_packet import OscPacket
 from pythonosc.udp_client import SimpleUDPClient
 
+from app.azure_speech import DEFAULT_STYLE, DEFAULT_VOICE, synthesize
 from app.dialogue import OPENING
 from app.extraction import extract_turn
 from app.mcp_server import serve_mcp
@@ -102,6 +104,29 @@ class FixtureOpenRouter(BaseHTTPRequestHandler):
 
 
 class LiveFlowTests(unittest.TestCase):
+    def test_speech_route_calls_azure_synthesis_and_returns_audio(self):
+        speech = partial(synthesize, "fixture-key", "westeurope", DEFAULT_VOICE, style=DEFAULT_STYLE)
+        with ConversationService(load_catalog(), reasoning=True) as service:
+            handler = partial(ConversationHandler, service=service, speech=speech)
+            with serving(handler) as chat_url, patch("app.azure_speech.urlopen") as azure:
+                response = azure.return_value.__enter__.return_value
+                response.status = 200
+                response.read.return_value = b"fixture-mp3"
+                with urlopen(chat_url + "/api/conversation/mode", timeout=5) as response:
+                    self.assertTrue(json.load(response)["azureSpeech"])
+                request = Request(
+                    chat_url + "/api/speech", b'{"text":" A & B ? "}',
+                    {"Content-Type": "application/json"}, method="POST",
+                )
+                with urlopen(request, timeout=5) as response:
+                    self.assertEqual(response.headers.get_content_type(), "audio/mpeg")
+                    self.assertEqual(response.read(), b"fixture-mp3")
+                azure.assert_called_once()
+                request_to_azure = azure.call_args.args[0]
+                self.assertEqual(request_to_azure.full_url,
+                                 "https://westeurope.tts.speech.microsoft.com/cognitiveservices/v1")
+                self.assertIn(b"A &amp; B ?", request_to_azure.data)
+
     def test_simulation_starts_through_the_cli(self):
         with subprocess.Popen(
             [sys.executable, "-X", "utf8", "-m", "app.main", "--simulate", "--reasoning",

@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler
 from threading import Lock
 from uuid import uuid4
 
+from .azure_speech import SpeechError
 from .dialogue import DIRECTORY, OPENING, PromptError, demo_reply, read_system_prompt, validate_messages
 from .extraction import ExtractionError, extract_turn
 from .openrouter import OpenRouterError, generate_reply
@@ -21,9 +22,11 @@ STATIC = {
     "/": ("index.html", "text/html"),
     "/static/chat.css": ("chat.css", "text/css"),
     "/static/chat.js": ("chat.js", "text/javascript"),
+    "/static/voice.js": ("voice.js", "text/javascript"),
 }
 TURN_PATH = "/api/conversation/turn"
 SESSION_PATH = "/api/conversation/session"
+SPEECH_PATH = "/api/speech"
 MAX_BODY_BYTES = 256 * 1024
 RECORD_PATH = DIRECTORY.parent / "test-results.jsonl"
 RECORD_LOCK = Lock()
@@ -255,25 +258,26 @@ class ConversationService:
 
 
 class ConversationHandler(BaseHTTPRequestHandler):
-    def __init__(self, *args, service):
+    def __init__(self, *args, service, speech=None):
         self.service = service
+        self.speech = speech
         super().__init__(*args)
 
     def send_content(self, status, content, media_type):
         self.send_response(status)
-        self.send_header("Content-Type", f"{media_type}; charset=utf-8")
+        self.send_header("Content-Type", media_type)
         self.send_header("Content-Length", str(len(content)))
         self.end_headers()
         self.wfile.write(content)
 
     def send_json(self, status, value):
-        self.send_content(status, json.dumps(value, ensure_ascii=False).encode(), "application/json")
+        self.send_content(status, json.dumps(value, ensure_ascii=False).encode(), "application/json; charset=utf-8")
 
     def do_GET(self):
         if self.path == "/api/conversation/opening":
             self.send_json(200, OPENING)
         elif self.path == "/api/conversation/mode":
-            self.send_json(200, {"model": self.service.model})
+            self.send_json(200, {"model": self.service.model, "azureSpeech": self.speech is not None})
         elif self.service.reasoning and self.path.startswith(f"{SESSION_PATH}/") and self.path.endswith("/reasoning"):
             session_id = self.path.removeprefix(f"{SESSION_PATH}/").removesuffix("/reasoning")
             try:
@@ -284,7 +288,7 @@ class ConversationHandler(BaseHTTPRequestHandler):
                 self.send_json(200, reasoning)
         elif self.path in STATIC:
             filename, media_type = STATIC[self.path]
-            self.send_content(200, (DIRECTORY / "static" / filename).read_bytes(), media_type)
+            self.send_content(200, (DIRECTORY / "static" / filename).read_bytes(), f"{media_type}; charset=utf-8")
         else:
             self.send_json(404, {"detail": "Page introuvable."})
 
@@ -296,7 +300,7 @@ class ConversationHandler(BaseHTTPRequestHandler):
                 "session_id": session_id, "opening": OPENING, "reasoning": self.service.reasoning,
             })
             return
-        if self.path != TURN_PATH:
+        if self.path not in (TURN_PATH, SPEECH_PATH):
             self.send_json(404, {"detail": "Route introuvable."})
             return
         if self.headers.get_content_type() != "application/json":
@@ -309,6 +313,9 @@ class ConversationHandler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(size))
         except (ValueError, RecursionError):
             self.send_json(400, {"detail": "Requête JSON invalide."})
+            return
+        if self.path == SPEECH_PATH:
+            self.speak(payload)
             return
         try:
             messages = validate_messages(payload)
@@ -338,3 +345,22 @@ class ConversationHandler(BaseHTTPRequestHandler):
             self.send_json(502, {"detail": str(error)})
             return
         self.send_json(200, result)
+
+    def speak(self, payload):
+        text = payload.get("text") if isinstance(payload, dict) else None
+        if not isinstance(text, str) or not 1 <= len(text.strip()) <= 500:
+            self.send_json(422, {"detail": "Une question de 1 à 500 caractères est attendue."})
+            return
+        if self.speech is None:
+            self.send_json(503, {"detail": "Azure Speech n’est pas configuré."})
+            return
+        try:
+            audio = self.speech(text.strip())
+        except SpeechError as error:
+            self.log_error("%s", error)
+            self.send_json(502, {"detail": str(error)})
+            return
+        try:
+            self.send_content(200, audio, "audio/mpeg")
+        except (BrokenPipeError, ConnectionResetError):
+            return

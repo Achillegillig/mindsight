@@ -39,6 +39,19 @@ Modifier la clé `system_prompt` dans `app/prompts.json` pour
 ajuster le préprompt. Le serveur le relit à chaque message. La question
 d’ouverture est chargée au démarrage.
 
+## Écouter les questions
+
+Cliquer sur **Activer la voix** pour lire la question affichée et les
+suivantes. **Réécouter** répète la dernière question. **Couper la voix**
+arrête la lecture. Pour utiliser Azure Speech, définir `AZURE_SPEECH_KEY`
+et `AZURE_SPEECH_REGION` dans `.env`, puis redémarrer le serveur.
+La région doit correspondre à celle de la ressource Azure. Par défaut,
+MindSight utilise `fr-FR-Soleil:MAI-Voice-2.1-Flash` en voix douce
+(`softvoice`). Pour changer la voix ou le ton, renseigner
+`AZURE_SPEECH_VOICE` ou `AZURE_SPEECH_STYLE`. Le serveur garde la clé et transmet uniquement le
+texte demandé pour la lecture à Azure. La voix du navigateur sert de
+secours et reste disponible dans l’export HTML autonome.
+
 ## Tester la conversation simulée
 
 Lancer `python3 -m app.main --simulate` pour utiliser les relances

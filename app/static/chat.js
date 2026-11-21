@@ -8,6 +8,7 @@ const reasoning = document.querySelector("#reasoning");
 const reasoningStatus = document.querySelector("#reasoning-status");
 const reasoningTurns = document.querySelector("#reasoning-turns");
 const reasoningDimensions = document.querySelector("#reasoning-dimensions");
+const questionVoice = createQuestionVoice();
 let history = [];
 let sessionId;
 let pendingRequest;
@@ -204,6 +205,7 @@ function setBusy(busy) {
 }
 
 async function start() {
+  questionVoice.reset();
   setBusy(true);
   status.textContent = "";
   try {
@@ -219,6 +221,7 @@ async function start() {
     history = [opening];
     messages.replaceChildren();
     append(opening);
+    questionVoice.setQuestion(opening.content);
     answer.value = "";
   } catch {
     status.textContent = "Impossible de charger la question. Clique sur Recommencer pour réessayer.";
@@ -253,6 +256,7 @@ form.addEventListener("submit", async (event) => {
     pendingRequest = undefined;
     append(userMessage);
     append(assistantMessage);
+    questionVoice.setQuestion(reply);
     void refreshReasoning((history.length - 1) / 2);
     answer.value = "";
     status.textContent = "";
@@ -275,7 +279,8 @@ start();
 if (!demo) {
   fetch("/api/conversation/mode")
     .then((response) => response.json())
-    .then(({ model }) => {
+    .then(({ model, azureSpeech }) => {
+      questionVoice.setAzureVoice(azureSpeech);
       document.querySelector("#mode").textContent = model ? `OpenRouter · ${model}` : "Conversation simulée";
     })
     .catch(() => {

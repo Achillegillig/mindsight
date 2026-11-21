@@ -10,19 +10,21 @@ from functools import partial
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
+from .azure_speech import DEFAULT_STYLE, DEFAULT_VOICE, synthesize
 from .dialogue import CONFIG, DIRECTORY, OPENING
 from .openrouter import DEFAULT_MODEL
 
-def openrouter_key():
-    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
-    if key:
-        return key
+
+def config_value(name):
+    environment_value = os.environ.get(name, "").strip()
+    if environment_value:
+        return environment_value
 
     env_path = DIRECTORY.parent / ".env"
     if env_path.is_file():
         for line in env_path.read_text(encoding="utf-8-sig").splitlines():
-            name, separator, value = line.partition("=")
-            if separator and name.strip().removeprefix("export ").strip() == "OPENROUTER_API_KEY":
+            assignment, separator, value = line.partition("=")
+            if separator and assignment.strip().removeprefix("export ").strip() == name:
                 value = value.strip()
                 if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
                     value = value[1:-1]
@@ -34,14 +36,16 @@ def export_demo(destination):
     static = DIRECTORY / "static"
     page = (static / "index.html").read_text(encoding="utf-8")
     styles = (static / "chat.css").read_text(encoding="utf-8")
+    voices = (static / "voice.js").read_text(encoding="utf-8")
     script = (static / "chat.js").read_text(encoding="utf-8")
     data = json.dumps({"opening": OPENING, "replies": CONFIG["demo_replies"]}, ensure_ascii=False)
     data = data.replace("<", "\\u003c")
     page = page.replace('<link rel="stylesheet" href="/static/chat.css">', f"<style>{styles}</style>")
-    page = page.replace('<script type="module" src="/static/chat.js"></script>', "")
+    for filename in ("voice.js", "chat.js"):
+        page = page.replace(f'<script defer src="/static/{filename}"></script>', "")
     page = page.replace(
         "</body>",
-        f'<script id="demo-data" type="application/json">{data}</script>\n<script>{script}</script>\n</body>',
+        f'<script id="demo-data" type="application/json">{data}</script>\n<script>{voices}</script>\n<script>{script}</script>\n</body>',
     )
     destination.write_text(page, encoding="utf-8")
 
@@ -67,6 +71,7 @@ def create_server(handler, port=8000):
 def open_firefox(url):
     environment = os.environ.copy()
     environment.pop("OPENROUTER_API_KEY", None)
+    environment.pop("AZURE_SPEECH_KEY", None)
     try:
         subprocess.Popen(["firefox", url], env=environment)
     except OSError:
@@ -88,9 +93,17 @@ if __name__ == "__main__":
         export_demo(args.export)
         print(f"Démo générée dans {args.export.resolve()}")
     else:
-        api_key = "" if args.simulate else openrouter_key()
+        api_key = "" if args.simulate else config_value("OPENROUTER_API_KEY")
         if not args.simulate and not api_key:
             parser.error("Renseigne OPENROUTER_API_KEY dans .env ou utilise --simulate.")
+        speech_key = config_value("AZURE_SPEECH_KEY")
+        speech_region = config_value("AZURE_SPEECH_REGION")
+        voice = config_value("AZURE_SPEECH_VOICE") or DEFAULT_VOICE
+        style = config_value("AZURE_SPEECH_STYLE") or (DEFAULT_STYLE if voice == DEFAULT_VOICE else None)
+        speech = None
+        if speech_key and speech_region:
+            speech = partial(synthesize, speech_key, speech_region, voice, style=style)
+
         os.environ.setdefault("HAYSTACK_TELEMETRY_ENABLED", "false")
         from .mcp_server import serve_mcp
         from .quantification import load_catalog
@@ -108,7 +121,7 @@ if __name__ == "__main__":
             reasoning=args.reasoning,
         ) as service:
             try:
-                handler = partial(ConversationHandler, service=service)
+                handler = partial(ConversationHandler, service=service, speech=speech)
                 with create_server(handler, args.port) as server, serve_mcp(service, args.mcp_port) as mcp_url:
                     url = f"http://127.0.0.1:{server.server_port}/"
                     print(f"MindSight — {url}", flush=True)
