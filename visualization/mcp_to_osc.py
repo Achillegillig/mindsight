@@ -12,6 +12,7 @@ from pythonosc.udp_client import SimpleUDPClient
 import yaml
 
 MAPPING_PATH = Path(__file__).with_name("mapping.yaml")
+OSC_FLOAT_MAX = 3.4028234663852886e38
 
 
 def load_mapping(path):
@@ -30,6 +31,9 @@ def load_mapping(path):
             raise ValueError("Signal OSC inconnu.")
         if idle is not None and (type(idle) not in (float, int) or not 0 <= idle <= 1):
             raise ValueError("La valeur de repos OSC doit être comprise entre 0 et 1.")
+        scale = channel.get("scale", 1.0)
+        if type(scale) not in (float, int) or not 0 < scale <= OSC_FLOAT_MAX:
+            raise ValueError("Le facteur d’échelle OSC doit être positif et représentable en float32.")
         addresses.add(address)
     return channels
 
@@ -41,7 +45,7 @@ def forward_snapshot(snapshot, channels, osc):
         if value is None:
             value = channel.get("idle")
         if value is not None:
-            osc.send_message(channel["address"], float(value))
+            osc.send_message(channel["address"], float(value) * channel.get("scale", 1.0))
 
 
 async def bridge(url, session_id, channels, osc, *, interval=0.25, once=False):
