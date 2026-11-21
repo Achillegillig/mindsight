@@ -21,11 +21,11 @@ from pythonosc.osc_packet import OscPacket
 from pythonosc.udp_client import SimpleUDPClient
 
 from app.azure_speech import DEFAULT_STYLE, DEFAULT_VOICE, synthesize
-from app.dialogue import OPENING
-from app.extraction import extract_turn
+from app.dialogue import CLOSING, OPENING, QUESTIONS
+from app.extraction import extract_turn, observe_turn
 from app.mcp_server import serve_mcp
 from app.quantification import load_catalog
-from app.server import ConversationHandler, ConversationService
+from app.server import ConversationHandler, ConversationService, TurnConflict
 from visualization.mcp_to_osc import bridge
 
 
@@ -72,22 +72,23 @@ class FixtureOpenRouter(BaseHTTPRequestHandler):
         payload = json.loads(request["messages"][-1]["content"])
         answer = payload["answer"]
         self.requests.append(payload)
+        if "observations" in payload and answer == "Je me sentais capable de porter le projet.":
+            self.gate.wait(8)
         if "observations" not in payload:
-            if answer == "J’ai dit que je préférais la seconde option.":
-                self.gate.wait(8)
             data = {"observations": [{
-                "label": "Épisode", "quote": answer, "kind": "action",
+                "label": "Épisode", "quote": answer,
+                "kind": "ressenti" if "soulagé" in answer or "J’ai peur" in answer else "action",
                 "subject": "participant", "mode": "vecu",
             }]}
-        elif answer == "Échec de l’interprétation.":
+        elif answer == "J’ai peur. Échec de l’interprétation.":
             data = {"unexpected": []}
         else:
             replay = answer.startswith("Dans le même projet")
-            relation = "contre_indice" if "tais" in answer else "appui"
             episode_ref = payload["known_episodes"][0]["id"] if replay else "new:episode"
             data = {"dimensions": [{
-                "dimension_id": "affirmation_de_soi", "reading": "Position exprimée dans cet épisode.",
-                "relation": relation, "strength": "indirect" if "atelier" in answer else "direct",
+                "dimension_id": "confiance_en_soi", "reading": "Confiance dans ses capacités exprimée dans cet épisode.",
+                "strength": "indirect" if "atelier" in answer else "direct",
+                **({"relation": "contre_indice"} if "doutais" in answer else {}),
                 "observation_ids": ["o1"], "episode_ref": episode_ref, "episode_label": answer,
             }]}
         body = json.dumps({
@@ -185,12 +186,11 @@ class LiveFlowTests(unittest.TestCase):
         with TemporaryDirectory() as directory, serving(fake_provider) as provider_url:
             record_path = Path(directory) / "test-results.jsonl"
 
-            def extractor(*args, **kwargs):
-                factory = partial(OpenRouterChatGenerator, api_base_url=provider_url)
-                return extract_turn(*args, **kwargs, generator_factory=factory)
-
+            factory = partial(OpenRouterChatGenerator, api_base_url=provider_url)
             with ConversationService(load_catalog(), model="fake/local", api_key="fixture",
-                                     record_path=record_path, reasoning=True, extractor=extractor,
+                                     record_path=record_path, reasoning=True,
+                                     extractor=partial(extract_turn, generator_factory=factory),
+                                     observer=partial(observe_turn, generator_factory=factory),
                                      dialogue=lambda *_: "Et ensuite ?") as service:
                 handler = partial(ConversationHandler, service=service)
                 with serving(handler) as chat_url, serve_mcp(service, 0) as mcp_url:
@@ -201,21 +201,121 @@ class LiveFlowTests(unittest.TestCase):
             self.assertEqual({entry["session_id"] for entry in entries}, {snapshot["session_id"]})
             self.assertEqual([entry["quantification"]["revision"] for entry in entries], [1, 2, 3, 4, 5])
             first = entries[0]
-            self.assertEqual(first["extraction"]["observations"][0]["quote"], "J’ai dit que je préférais la seconde option.")
-            self.assertEqual(first["extraction"]["dimensions"][0]["dimension_id"], "affirmation_de_soi")
+            self.assertEqual(first["extraction"]["observations"][0]["quote"], "Je me sentais capable de porter le projet.")
+            self.assertEqual(first["extraction"]["dimensions"][0]["dimension_id"], "confiance_en_soi")
             self.assertEqual(first["quantification"]["scope"], "session")
-            initiative = next(item for item in first["quantification"]["dimensions"]
-                              if item["id"] == "affirmation_de_soi")
-            self.assertEqual(initiative["appui"], 0.5)
-            self.assertEqual(initiative["source_refs"], ["t1:o1"])
+            confidence = next(item for item in first["quantification"]["dimensions"]
+                              if item["id"] == "confiance_en_soi")
+            self.assertEqual(confidence["score"], 4)
+            self.assertEqual(confidence["source_refs"], ["t1:o1"])
             last = entries[-1]
             self.assertEqual(last["analysis_status"], "partial")
             self.assertIsNone(last["extraction"]["dimensions"])
             self.assertEqual(last["quantification"]["dimensions"], snapshot["dimensions"])
 
+    def test_each_question_requires_its_own_feeling(self):
+        def observe(*args, **kwargs):
+            answer = args[-1]
+            return {
+                "observations": [{"id": "o1", "quote": answer}],
+                "expressed_feelings": [{"label": "calme", "quote": answer}] if "calme" in answer else [],
+                "dimensions": [],
+            }
+
+        with ConversationService(
+            load_catalog(), model="fake/local", reasoning=True,
+            observer=observe, extractor=lambda *args, **kwargs: kwargs["observed"],
+            dialogue=lambda *_: "Qu’est-ce que ça t’évoque ?",
+        ) as service:
+            session_id = service.create_session()
+            history = [OPENING]
+            for turn, (text, expected) in enumerate([
+                ("Je me sens calme.", QUESTIONS[1]),
+                ("Un pigeon.", None),
+                ("Il parlerait beaucoup.", None),
+                ("De toutes les miettes.", QUESTIONS[2]),
+                ("Les klaxons.", None),
+                ("Surtout ceux des voitures.", None),
+                ("Je préfère passer.", CLOSING),
+            ], 1):
+                messages = [*history, {"role": "user", "content": text}]
+                result = service.process_session_turn(session_id, str(turn), messages)
+                if expected is None:
+                    self.assertNotIn(result["reply"], [*QUESTIONS, CLOSING])
+                else:
+                    self.assertEqual(result["reply"], expected)
+                self.assertEqual(result["done"], expected == CLOSING)
+                self.assertEqual(service.process_session_turn(session_id, str(turn), messages), result)
+                history = [*messages, {"role": "assistant", "content": result["reply"]}]
+            with self.assertRaises(TurnConflict):
+                service.process_session_turn(session_id, "extra", [
+                    *history, {"role": "user", "content": "Encore une réponse."},
+                ])
+            self.assertEqual(wait_for_turn(service, session_id, 7)["analysis_status"], "ready")
+
+    def test_final_scores_wait_for_the_last_analysis_and_cover_the_catalog(self):
+        finish_analysis = Event()
+        answer = "Le courant me calme."
+        observed = {
+            "observations": [{"id": "o1"}],
+            "expressed_feelings": [{"label": "calme", "quote": answer}],
+            "dimensions": [],
+        }
+
+        def interpret(*args, **kwargs):
+            finish_analysis.wait(3)
+            return {**observed, "dimensions": [{
+                "dimension_id": "reveur", "episode_ref": "new:image", "episode_label": "Image",
+                "strength": "indirect", "relation": "appui", "observation_ids": ["o1"],
+            }]}
+
+        with ConversationService(load_catalog(), model="fixture",
+                                 observer=lambda *args, **kwargs: observed,
+                                 extractor=interpret) as service:
+            session_id = service.create_session()
+            self.assertFalse(service.get_scores(session_id)["ready"])
+            try:
+                history = [OPENING]
+                for turn, reply in enumerate([*QUESTIONS[1:], CLOSING], 1):
+                    messages = [*history, {"role": "user", "content": answer}]
+                    result = service.process_session_turn(session_id, str(turn), messages)
+                    self.assertEqual(result["done"], turn == 3)
+                    history = [*messages, {"role": "assistant", "content": reply}]
+                pending = service.get_scores(session_id)
+                self.assertFalse(pending["ready"])
+                self.assertEqual(pending["traits"], [])
+            finally:
+                finish_analysis.set()
+            wait_for_turn(service, session_id, 3)
+            result = service.get_scores(session_id)
+            self.assertTrue(result["ready"])
+            self.assertEqual(result["through_turn"], 3)
+            self.assertEqual(len(result["traits"]), len(service.catalog.dimensions))
+            scores = {trait["id"]: trait for trait in result["traits"]}
+            self.assertEqual(scores["reveur"]["score"], 6)
+            self.assertEqual(scores["humour"]["score"], 0)
+            self.assertEqual(scores["humour"]["status"], "sans_indice")
+
+    def test_simulated_session_allows_two_followups_per_question(self):
+        with ConversationService(load_catalog()) as service:
+            session_id = service.create_session()
+            messages = [OPENING]
+            questions = [OPENING["content"]]
+            for turn in range(1, 10):
+                messages.append({"role": "user", "content": "Un détail."})
+                result = service.process_session_turn(session_id, str(turn), messages)
+                self.assertEqual(result["done"], turn == 9)
+                if turn in (3, 6):
+                    self.assertEqual(result["reply"], QUESTIONS[turn // 3])
+                messages.append({"role": "assistant", "content": result["reply"]})
+                if result["reply"] in QUESTIONS:
+                    questions.append(result["reply"])
+            self.assertEqual(questions, QUESTIONS)
+            self.assertEqual(result["reply"], CLOSING)
+
     def test_record_without_session_quantifies_the_single_turn(self):
         extraction = {"dimensions": [{
-            "dimension_id": "affirmation_de_soi", "relation": "appui", "strength": "direct",
+            "dimension_id": "confiance_en_soi", "relation": "appui", "strength": "direct",
             "episode_ref": "new:episode", "episode_label": "Réunion", "observation_ids": ["o1"],
         }]}
         with TemporaryDirectory() as directory:
@@ -223,13 +323,13 @@ class LiveFlowTests(unittest.TestCase):
             with ConversationService(load_catalog(), model="fake/local", record_path=record_path,
                                      extractor=lambda *args, **kwargs: extraction,
                                      dialogue=lambda *_: "Et ensuite ?") as service:
-                service.process_legacy_turn([OPENING, {"role": "user", "content": "J’ai dit quelle option je préférais."}])
+                service.process_legacy_turn([OPENING, {"role": "user", "content": "Je savais que je pouvais mener le projet."}])
             entry = json.loads(record_path.read_text(encoding="utf-8"))
         self.assertEqual(entry["quantification"]["scope"], "turn")
         self.assertEqual(entry["analysis_status"], "ready")
-        initiative = next(item for item in entry["quantification"]["dimensions"]
-                          if item["id"] == "affirmation_de_soi")
-        self.assertEqual(initiative["appui"], 0.5)
+        confidence = next(item for item in entry["quantification"]["dimensions"]
+                          if item["id"] == "confiance_en_soi")
+        self.assertEqual(confidence["score"], 4)
 
     def exercise_conversation(self, service, chat_url, mcp_url, release, provider_requests):
         session = post(chat_url + "/api/conversation/session", {})
@@ -248,25 +348,25 @@ class LiveFlowTests(unittest.TestCase):
             return payload, result
 
         try:
-            first, result = send("J’ai dit que je préférais la seconde option.", "request-1")
+            first, result = send("Je me sentais capable de porter le projet.", "request-1")
             self.assertEqual(result["analysis_status"], "pending")
             self.assertEqual(post(turn_url, first), result)
             self.assertEqual(service.get_snapshot(session_id)["revision"], 0)
         finally:
             release.set()
         self.assertEqual(wait_for_turn(service, session_id, 1)["analysis_status"], "ready")
-        send("Dans le même projet, j’ai dit laquelle je préférais.", "request-2")
-        send("Dans un atelier, j’ai orienté le choix vers mon format préféré.", "request-3")
-        send("Sur un autre projet, je me tais malgré mon désaccord.", "request-4")
-        send("Échec de l’interprétation.", "request-5")
+        send("Dans le même projet, je savais que je pouvais mener le travail à terme. Je suis soulagé.", "request-2")
+        send("Dans un atelier, je me suis senti capable de présenter le résultat.", "request-3")
+        send("Sur un autre projet, je doutais de mes capacités, mais je suis soulagé.", "request-4")
+        send("J’ai peur. Échec de l’interprétation.", "request-5")
         snapshot = wait_for_turn(service, session_id, 5)
-        initiative = next(item for item in snapshot["dimensions"] if item["id"] == "affirmation_de_soi")
+        confidence = next(item for item in snapshot["dimensions"] if item["id"] == "confiance_en_soi")
         self.assertEqual(snapshot["revision"], 5)
         self.assertEqual(snapshot["analysis_status"], "partial")
-        self.assertEqual(initiative["appui"], 0.6)
-        self.assertEqual(initiative["contre_appui"], 0.5)
-        self.assertEqual(initiative["episode_count"], 3)
-        self.assertEqual(snapshot["observations"]["t1:o1"]["quote"], "J’ai dit que je préférais la seconde option.")
+        self.assertEqual(confidence["score"], 6)
+        self.assertNotIn("contre_appui", confidence)
+        self.assertEqual(confidence["episode_count"], 2)
+        self.assertEqual(snapshot["observations"]["t1:o1"]["quote"], "Je me sentais capable de porter le projet.")
         self.assertEqual(len(provider_requests), 10)
 
         with urlopen(chat_url + f"/api/conversation/session/{session_id}/reasoning", timeout=5) as response:
@@ -275,11 +375,10 @@ class LiveFlowTests(unittest.TestCase):
         self.assertEqual([item["turn"] for item in trace["turns"]], [1, 2, 3, 4, 5])
         self.assertEqual(trace["turns"][0]["episode_ids"], trace["turns"][1]["episode_ids"])
         self.assertEqual(trace["turns"][0]["extraction"]["trace"]["observation_candidates"], 1)
-        attribution = next(item for item in trace["dimensions"] if item["id"] == "affirmation_de_soi")
-        self.assertEqual(attribution["family"], "Fonctionnement relationnel")
-        self.assertEqual(attribution["calculation"]["support_total"], 1.5)
-        self.assertEqual(attribution["calculation"]["counter_total"], 1.0)
-        self.assertEqual(attribution["appui"], initiative["appui"])
+        attribution = next(item for item in trace["dimensions"] if item["id"] == "confiance_en_soi")
+        self.assertEqual(attribution["family"], "Rapport à soi")
+        self.assertEqual(attribution["calculation"]["total_points"], 6)
+        self.assertEqual(attribution["score"], confidence["score"])
 
         first["messages"][-1]["content"] = "Une autre réponse"
         with self.assertRaises(HTTPError) as error:
@@ -292,13 +391,11 @@ class LiveFlowTests(unittest.TestCase):
             receiver.bind(("127.0.0.1", 0))
             receiver.settimeout(2)
             channels = [
-                {"dimension": "affirmation_de_soi", "signal": "appui", "address": "/ouverture"},
-                {"dimension": "affirmation_de_soi", "signal": "contre_appui", "address": "/nuance"},
+                {"dimension": "confiance_en_soi", "signal": "appui", "address": "/ouverture"},
             ]
             with SimpleUDPClient("127.0.0.1", receiver.getsockname()[1]) as osc:
                 asyncio.run(bridge(mcp_url, session_id, channels, osc, once=True))
             messages = [OscPacket(receiver.recv(1024)).messages[0].message for _ in channels]
-        self.assertEqual([item.address for item in messages], ["/ouverture", "/nuance"])
+        self.assertEqual([item.address for item in messages], ["/ouverture"])
         self.assertAlmostEqual(messages[0].params[0], 0.6)
-        self.assertAlmostEqual(messages[1].params[0], 0.5)
         return snapshot

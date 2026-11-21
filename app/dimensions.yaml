@@ -1,86 +1,88 @@
-version: 2
+version: 4
 quantification:
-  weights: {direct: 1.0, indirect: 0.5}
-  saturation: 1.0
+  weights: {direct: 4, indirect: 2}
 
 dimensions:
-  - id: sensibilite_apparente
-    family: Personnalité apparente
-    label: Sensibilité apparente
-    definition: Manifeste une attention à des nuances perceptives ou à l'ambiance d'une situation.
-    exclusions: [Description détaillée seule, Intensité d'une émotion sans attention à ses nuances]
-  - id: extraversion
-    family: Personnalité apparente
-    label: Extraversion exprimée
-    definition: Dit rechercher ou apprécier activement le contact social, ou rapporte un exemple de cette démarche.
-    exclusions: [Longueur de la réponse, Aisance verbale seule]
-  - id: reserve
-    family: Personnalité apparente
-    label: Réserve exprimée
-    definition: Décrit une retenue dans la prise de parole ou l'entrée en relation.
-    exclusions: [Brièveté de la réponse seule]
-  - id: assurance
-    family: Personnalité apparente
-    label: Assurance
-    definition: Exprime de la confiance dans sa manière d'agir ou de décider dans une situation précise.
-    exclusions: [Ton catégorique seul]
-  - id: analyse
-    family: Fonctionnement intellectuel
-    label: Démarche analytique
-    definition: Décompose un problème, compare des options ou explicite des critères.
-  - id: intuition
-    family: Fonctionnement intellectuel
-    label: Intuition exprimée
-    definition: Explique un choix en s'appuyant sur une impression spontanée.
+  - id: enthousiasme
+    family: Expression
+    label: Enthousiasme
+    definition: Exprime un élan, un plaisir anticipé ou une envie marquée de faire quelque chose.
+    exclusions: [Ponctuation expressive seule, Simple préférence]
+  - id: reveur
+    family: Expression
+    label: Rêveur
+    definition: Développe une rêverie, une possibilité ou un monde imaginé au-delà du point de départ.
+    allow_fiction: true
+    exclusions: [Simple réponse à une question imaginaire, Détail fourni par la question]
+  - id: passionne
+    family: Expression
+    label: Passionné
+    definition: Exprime un attachement soutenu à un sujet ou décrit le temps et l'énergie qu'il y consacre.
+    exclusions: [Enthousiasme ponctuel, Goût déclaré sans autre indication]
   - id: creativite
+    family: Expression
+    label: Créativité
+    definition: Produit une association originale, transforme la prémisse ou invente un mécanisme inattendu.
+    allow_fiction: true
+    exclusions: [Longueur ou richesse lexicale seule, Reprise d'une idée de la question]
+  - id: bienveillance
+    family: Fonctionnement relationnel
+    label: Bienveillance
+    definition: Exprime une attention au bien d'autrui ou décrit une action destinée à l'aider.
+    exclusions: [Formule de politesse seule, Bienveillance d'un personnage seule]
+  - id: force_de_proposition
+    family: Bonus
+    label: Force de proposition
+    definition: Prend l'initiative d'ajouter une option, d'avancer une solution ou de proposer une suite concrète.
+    exclusions: [Préférence seule, Simple exécution d'une consigne]
+  - id: impulsivite
+    family: Fonctionnement émotionnel
+    label: Impulsivité
+    definition: Décrit une réaction immédiate et peu réfléchie, notamment sous l'effet de la colère.
+    exclusions: [Colère sans réaction impulsive, Agressivité prêtée à un animal ou un personnage]
+  - id: autocritique
+    family: Rapport à soi
+    label: Autocritique
+    definition: Revient sur sa propre décision, son comportement ou une erreur en explicitant ce qu'il remet en question.
+    exclusions: [Correction factuelle seule, Critique attribuée à un tiers]
+  - id: domination
+    family: Fonctionnement relationnel
+    label: Domination
+    definition: Exprime une volonté d'imposer ses décisions aux autres ou décrit avoir limité leur choix pour faire prévaloir le sien.
+    exclusions: [Confiance en soi, Initiative ou désaccord sans contrôle d'autrui]
+  - id: extraversion
+    family: Fonctionnement relationnel
+    label: Extraversion
+    definition: Dit rechercher ou apprécier les interactions sociales, ou décrit une démarche allant dans ce sens.
+    exclusions: [Longueur de la réponse, Aisance verbale seule]
+  - id: introversion
+    family: Fonctionnement relationnel
+    label: Introversion
+    definition: Exprime une préférence pour la solitude ou les petits groupes, ou dit avoir besoin de moments seuls pour retrouver de l'énergie.
+    exclusions: [Réponse brève, Timidité supposée, Absence d'indice d'extraversion]
+  - id: confiance_en_soi
+    family: Rapport à soi
+    label: Confiance en soi
+    definition: Exprime sa confiance dans sa capacité à agir, choisir ou faire face à une situation.
+    exclusions: [Ton catégorique seul, Contrôle exercé sur les autres]
+  - id: manque_de_confiance_en_soi
+    family: Rapport à soi
+    label: Absence de confiance en soi
+    definition: Exprime un doute sur ses propres capacités ou raconte avoir renoncé en pensant ne pas être à la hauteur.
+    exclusions: [Doute sur la situation seule, Hésitation ponctuelle sans mise en cause de soi, Absence d'indice de confiance en soi]
+  - id: analytique
     family: Fonctionnement intellectuel
-    label: Créativité exprimée
-    definition: Imagine un rapprochement original ou une autre manière de faire.
-  - id: logique
-    family: Fonctionnement intellectuel
-    label: Raisonnement logique
-    definition: Relie explicitement des prémisses à une conséquence ou vérifie la cohérence d'une conclusion.
-    exclusions: [Simple inventaire d'options, Usage isolé d'un connecteur logique]
-  - id: abstraction
-    family: Fonctionnement intellectuel
-    label: Pensée abstraite
-    definition: Passe d'un cas concret à un principe général, ou met en relation des idées générales.
-    exclusions: [Vocabulaire abstrait seul]
-  - id: expression_emotionnelle
+    label: Analytique
+    definition: Décompose une situation, ordonne plusieurs éléments ou compare des options en expliquant ses critères.
+    exclusions: [Énumération sans mise en relation, Forme géométrique décrite seule]
+  - id: humour
+    family: Expression
+    label: Humour
+    definition: Produit un jeu de mots, une chute, un décalage volontaire ou de l'autodérision.
+    allow_fiction: true
+    exclusions: [Humour contenu dans la question, Rire ou emoji seul]
+  - id: angoisse
     family: Fonctionnement émotionnel
-    label: Expression émotionnelle
-    definition: Nomme, décrit ou communique un ressenti qui lui est attribuable.
-    exclusions: [Émotion d’un tiers, Ressenti supposé à partir d'une image seule]
-  - id: regulation_emotionnelle
-    family: Fonctionnement émotionnel
-    label: Régulation émotionnelle
-    definition: Décrit une action destinée à traverser ou moduler une émotion.
-  - id: sensibilite_emotionnelle
-    family: Fonctionnement émotionnel
-    label: Sensibilité émotionnelle
-    definition: Décrit ce qui le touche émotionnellement ou les nuances qu'il perçoit dans son propre ressenti.
-    exclusions: [Réaction rapide seule, Attention sensorielle sans ressenti formulé]
-  - id: reactivite_emotionnelle
-    family: Fonctionnement émotionnel
-    label: Réactivité émotionnelle
-    definition: Raconte une variation rapide ou marquée de son état émotionnel en réponse à un événement identifiable.
-  - id: empathie
-    family: Fonctionnement relationnel
-    label: Empathie exprimée
-    definition: Cherche à comprendre le vécu d'autrui ou adapte son action à ce vécu.
-    exclusions: [Accord poli seul, Émotion attribuée sans justification]
-  - id: ecoute
-    family: Fonctionnement relationnel
-    label: Écoute
-    definition: Reformule, demande des précisions ou prend concrètement en compte les propos d'autrui.
-    exclusions: [Accord seul, Simple présence lors d'un échange]
-  - id: cooperation
-    family: Fonctionnement relationnel
-    label: Coopération
-    definition: Partage le travail, cherche une solution commune ou inclut autrui dans la décision.
-  - id: affirmation_de_soi
-    family: Fonctionnement relationnel
-    label: Affirmation de soi
-    definition: Formule sa préférence, sa limite ou son désaccord dans un échange.
-    examples: ["J’ai dit que je préférais la seconde option et j’ai expliqué pourquoi."]
-    exclusions: [Proposition sans expression d'une position personnelle, Décision imposée seule]
+    label: Angoisse exprimée
+    definition: Exprime une inquiétude marquée, une tension persistante ou des pensées pénibles qui reviennent.
+    exclusions: [Scène sombre seule, Peur d'un personnage, Diagnostic déduit du texte]

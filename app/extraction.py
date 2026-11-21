@@ -20,18 +20,30 @@ Chaque item contient label (80 caractères max), quote (extrait exact, assez dis
 n'apparaître qu'une fois), kind (image, ressenti, action, preference, raisonnement, relation,
 valeur ou autre), subject (participant, tiers, personnage ou incertain) et mode (vecu,
 declaration, fiction, citation ou hypothetique). Préserve la négation et l'attribution.
-Un ressenti doit être exprimé textuellement. Une image reste une image.
+Classe comme ressenti seulement un état émotionnel explicitement exprimé par la
+personne elle-même, comme « ça me soulage ». Une préférence, un souvenir, une
+émotion niée ou une propriété de la scène ne suffisent pas. En cas de doute,
+utilise un autre kind. Une image reste une image.
+Pour une invention, un rapprochement ou une blague créés par le participant,
+le sujet est participant si l'observation porte sur le choix narratif lui-même.
+Les actions et ressentis du personnage restent attribués au personnage.
 Si aucun passage ne convient, observations est vide."""
 
 INTERPRET = """Relie les observations validées aux fiches du catalogue, en français.
 Renvoie {"dimensions": [...]} avec au maximum 16 interprétations, chacune avec :
 dimension_id, observation_ids (liste des identifiants fournis), reading (une phrase courte
 qui relie l'indice au critère de la fiche et situe la lecture),
-relation (appui ou contre_indice), strength (direct ou indirect),
+strength (direct ou indirect),
 episode_ref et episode_label. Respecte les exclusions et le nombre minimal d'observations.
 Pour une dimension, cite au moins une observation attribuée au participant et ancrée
-dans un vécu ou une déclaration. Garde les images et la fiction dans les observations.
-Un contre-indice demande un passage qui fragilise la lecture. L'absence de mention ne suffit pas.
+dans un vécu ou une déclaration. Si la fiche autorise la fiction (allow_fiction),
+tu peux aussi prendre en compte une création narrative du participant comme appui
+indirect. Le comportement d'un personnage ne permet pas de décrire le participant.
+Ne renvoie que des appuis positifs et justifiés. Un indice direct exprime le
+critère ou raconte une action qui l'illustre. Un indice indirect soutient une
+lecture plausible à partir d'un détail précis. Une préférence seule, une réponse
+brève ou l'absence d'un trait ne comptent pas comme indices. Par exemple, choisir
+un bruit à supprimer ne démontre pas d'enthousiasme sans élan exprimé.
 Un épisode désigne une situation racontée, même si elle se poursuit sur plusieurs tours.
 Reprends l'identifiant exact d'un épisode connu si c'est clairement la même situation.
 Pour un épisode clairement distinct, utilise new: suivi d'un identifiant local
@@ -104,13 +116,13 @@ def grounded_observations(payload, answer):
 
 def grounded_dimensions(payload, observations, catalog, known_episodes):
     by_id = {item["id"]: item for item in observations}
-    minimums = {item["id"]: item.get("min_observations", 1) for item in catalog.dimensions}
+    profiles = {item["id"]: item for item in catalog.dimensions}
     known = {item["id"] for item in known_episodes}
     dimensions = []
     for item in read_items(payload, "dimensions", 16):
         dimension_id, ids = item.get("dimension_id"), item.get("observation_ids")
         reading, episode = item.get("reading"), item.get("episode_ref")
-        if not isinstance(dimension_id, str) or dimension_id not in minimums:
+        if not isinstance(dimension_id, str) or dimension_id not in profiles:
             continue
         if not isinstance(ids, list) or not all(isinstance(key, str) and key in by_id for key in ids):
             continue
@@ -120,13 +132,19 @@ def grounded_dimensions(payload, observations, catalog, known_episodes):
             if start >= end:
                 count += 1
                 end = stop
-        if count < minimums[dimension_id] or not isinstance(reading, str) or not 0 < len(reading.strip()) <= 350:
+        profile = profiles[dimension_id]
+        if count < profile.get("min_observations", 1) or not isinstance(reading, str) or not 0 < len(reading.strip()) <= 350:
             continue
-        if not any(by_id[key]["subject"] == "participant" and by_id[key]["mode"] in ("vecu", "declaration")
-                   for key in ids):
+        strength = item.get("strength")
+        if item.get("relation", "appui") != "appui" or strength not in ("direct", "indirect"):
             continue
-        if item.get("relation") not in ("appui", "contre_indice") or item.get("strength") not in ("direct", "indirect"):
-            continue
+        participant = [by_id[key] for key in ids if by_id[key]["subject"] == "participant"]
+        has_lived_evidence = any(obs["mode"] in ("vecu", "declaration") for obs in participant)
+        if not has_lived_evidence:
+            if not (profile.get("allow_fiction")
+                    and any(obs["mode"] == "fiction" for obs in participant)):
+                continue
+            strength = "indirect"
         if not isinstance(episode, str) or (episode not in known and not re.fullmatch(r"new:[a-zA-Z0-9_-]{1,24}", episode)):
             episode = "unknown"
         label = item.get("episode_label")
@@ -134,33 +152,30 @@ def grounded_dimensions(payload, observations, catalog, known_episodes):
             "dimension_id": dimension_id, "observation_ids": list(dict.fromkeys(ids)),
             "reading": reading.strip(), "episode_ref": episode,
             "episode_label": label.strip()[:100] if isinstance(label, str) else "",
-            "relation": item["relation"], "strength": item["strength"],
+            "strength": strength,
         })
     return dimensions
 
 
-def extract_turn(api_key, model, question, answer, *, catalog=None, known_episodes=(),
-                 include_trace=False, timeout=10.0, generator_factory=OpenRouterChatGenerator):
-    catalog = catalog if catalog is not None else load_catalog()
-    deadline = monotonic() + timeout
+def generate(api_key, model, prompt, payload, timeout, generator_factory):
+    if timeout <= 0:
+        raise ExtractionError("Le délai d’analyse du tour a expiré.")
+    generator = generator_factory(
+        api_key=Secret.from_token(api_key), model=model, timeout=timeout, max_retries=0,
+        generation_kwargs={
+            "response_format": {"type": "json_object"},
+            "max_tokens": 1800,
+            "reasoning": {"enabled": False},
+        },
+    )
+    return run_pass(generator, prompt, payload)
 
-    def generate(prompt, payload, budget):
-        remaining = min(budget, deadline - monotonic())
-        if remaining <= 0:
-            raise ExtractionError("Le délai d’analyse du tour a expiré.")
-        generator = generator_factory(
-            api_key=Secret.from_token(api_key), model=model, timeout=remaining, max_retries=0,
-            generation_kwargs={
-                "response_format": {"type": "json_object"},
-                "max_tokens": 1800,
-                "reasoning": {"enabled": False},
-            },
-        )
-        return run_pass(generator, prompt, payload)
 
-    observed = generate(OBSERVE, {
+def observe_turn(api_key, model, question, answer, *, timeout=5.0,
+                 include_trace=False, generator_factory=OpenRouterChatGenerator):
+    observed = generate(api_key, model, OBSERVE, {
         "question": question, "answer": answer,
-    }, timeout / 2)
+    }, timeout, generator_factory)
     observations = grounded_observations(observed, answer)
     result = {
         "visual_elements": [
@@ -175,24 +190,37 @@ def extract_turn(api_key, model, question, answer, *, catalog=None, known_episod
         "observations": observations,
         "dimensions": [],
     }
-    interpretation_candidates = None
+    if include_trace:
+        result["trace"] = {
+            "observation_candidates": len(observed["observations"]),
+            "interpretation_candidates": None,
+        }
+    return result
+
+
+def extract_turn(api_key, model, question, answer, *, catalog=None, known_episodes=(),
+                 include_trace=False, timeout=10.0, generator_factory=OpenRouterChatGenerator,
+                 observed=None):
+    catalog = catalog if catalog is not None else load_catalog()
+    deadline = monotonic() + timeout
+    result = observed if observed is not None else observe_turn(
+        api_key, model, question, answer, timeout=timeout / 2,
+        include_trace=include_trace, generator_factory=generator_factory,
+    )
+    observations = result["observations"]
     if observations:
         try:
-            interpreted = generate(INTERPRET, {
+            interpreted = generate(api_key, model, INTERPRET, {
                 "question": question, "answer": answer, "observations": observations,
                 "known_episodes": known_episodes,
                 "catalog": [
                     {key: value for key, value in item.items() if key != "quantification"}
                     for item in catalog.dimensions
                 ],
-            }, timeout)
+            }, deadline - monotonic(), generator_factory)
             result["dimensions"] = grounded_dimensions(interpreted, observations, catalog, known_episodes)
-            interpretation_candidates = len(interpreted["dimensions"])
+            if "trace" in result:
+                result["trace"]["interpretation_candidates"] = len(interpreted["dimensions"])
         except ExtractionError:
             result["dimensions"] = None
-    if include_trace:
-        result["trace"] = {
-            "observation_candidates": len(observed["observations"]),
-            "interpretation_candidates": interpretation_candidates,
-        }
     return result

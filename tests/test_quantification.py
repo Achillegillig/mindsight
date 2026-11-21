@@ -1,5 +1,4 @@
 import unittest
-from collections import Counter
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -7,49 +6,57 @@ from app.quantification import load_catalog, quantify_dimensions
 
 
 class QuantificationTests(unittest.TestCase):
-    def test_catalog_covers_four_families_and_distinguishes_sensitivities(self):
+    def test_catalog_lists_the_creative_session_traits(self):
         catalog = load_catalog()
-        groups = Counter(item["family"] for item in catalog.dimensions)
-        self.assertEqual(groups, {
-            "Personnalité apparente": 4, "Fonctionnement intellectuel": 5,
-            "Fonctionnement émotionnel": 4, "Fonctionnement relationnel": 4,
+        self.assertEqual(catalog.version, 4)
+        self.assertEqual({item["id"] for item in catalog.dimensions}, {
+            "enthousiasme", "reveur", "passionne", "creativite", "bienveillance",
+            "force_de_proposition", "impulsivite", "autocritique", "domination",
+            "extraversion", "introversion", "confiance_en_soi",
+            "manque_de_confiance_en_soi", "analytique", "humour", "angoisse",
         })
-        ids = {item["id"] for item in catalog.dimensions}
-        self.assertTrue({"sensibilite_apparente", "sensibilite_emotionnelle"} <= ids)
+        self.assertEqual(
+            [item["id"] for item in catalog.dimensions if item.get("family") == "Bonus"],
+            ["force_de_proposition"],
+        )
 
-    def test_weights_count_episodes_and_keep_counter_evidence(self):
+    def test_scores_advance_once_per_episode_and_cap_at_ten(self):
         catalog = load_catalog()
 
-        def index(episode, strength, ref, relation="appui"):
-            return {"dimension_id": "affirmation_de_soi", "episode_id": episode,
-                    "strength": strength, "source_refs": [ref], "relation": relation}
+        def index(episode, strength, ref, **extra):
+            return {"dimension_id": "confiance_en_soi", "episode_id": episode,
+                    "strength": strength, "source_refs": [ref], **extra}
 
-        items = quantify_dimensions([
-            index("first", "direct", "t1:o1"),
-            index("first", "indirect", "t2:o1"),
+        indices = [
+            index("first", "indirect", "t1:o1"),
+            index("first", "direct", "t2:o1"),
             index("second", "indirect", "t3:o1"),
-            index("third", "direct", "t4:o1", "contre_indice"),
-        ], catalog)
-        output = {item["id"]: item for item in items}
-        initiative = output["affirmation_de_soi"]
-        self.assertEqual(initiative["appui"], 0.6)
-        self.assertEqual(initiative["contre_appui"], 0.5)
-        self.assertEqual(initiative["episode_count"], 3)
-        self.assertEqual(initiative["source_refs"], ["t1:o1", "t3:o1", "t4:o1"])
-        self.assertEqual(initiative["status"], "nuance")
-        self.assertIsNone(output["empathie"]["appui"])
+            index("third", "direct", "t4:o1", relation="contre_indice"),
+            index("fourth", "direct", "t5:o1"),
+            index("fifth", "direct", "t6:o1"),
+        ]
+        for count, expected in enumerate((0, 2, 4, 6, 6, 10, 10)):
+            results = quantify_dimensions(indices[:count], catalog)
+            confidence = next(item for item in results if item["id"] == "confiance_en_soi")
+            self.assertEqual(confidence["score"], expected)
+        self.assertEqual(confidence["episode_count"], 4)
+        self.assertEqual(confidence["source_refs"], ["t2:o1", "t3:o1", "t5:o1", "t6:o1"])
+        self.assertNotIn("contre_appui", confidence)
+        other = next(item for item in results if item["id"] == "manque_de_confiance_en_soi")
+        self.assertEqual(other["score"], 0)
+        self.assertEqual(other["status"], "sans_indice")
 
     def test_new_dimension_and_override_from_yaml(self):
         with TemporaryDirectory() as temp:
             path = Path(temp) / "catalog.yaml"
             path.write_text("""
 version: 19
-quantification: {weights: {direct: 1, indirect: 0.5}, saturation: 1}
+quantification: {weights: {direct: 4, indirect: 2}}
 dimensions:
   - id: curiosite
     label: Curiosité
     definition: Décrit une recherche d'explications nouvelles.
-    quantification: {saturation: 3}
+    quantification: {weights: {direct: 3}}
 """, encoding="utf-8")
             catalog = load_catalog(path)
         result, = quantify_dimensions([{
@@ -57,5 +64,4 @@ dimensions:
             "strength": "direct", "source_refs": ["t1:o1"],
         }], catalog)
         self.assertEqual(catalog.version, 19)
-        self.assertEqual(result["appui"], 0.25)
-        self.assertEqual(result["contre_appui"], 0)
+        self.assertEqual(result["score"], 3)

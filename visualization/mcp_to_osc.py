@@ -26,7 +26,7 @@ def load_mapping(path):
         address, idle = channel.get("address"), channel.get("idle")
         if not isinstance(address, str) or not address.startswith("/") or address in addresses:
             raise ValueError("Les adresses OSC doivent commencer par / et être uniques.")
-        if channel.get("signal") not in ("appui", "contre_appui"):
+        if channel.get("signal") != "appui":
             raise ValueError("Signal OSC inconnu.")
         if idle is not None and (type(idle) not in (float, int) or not 0 <= idle <= 1):
             raise ValueError("La valeur de repos OSC doit être comprise entre 0 et 1.")

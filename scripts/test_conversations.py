@@ -40,7 +40,9 @@ def run(base_url):
     opening = request(f"{base_url}/api/conversation/opening")
     for scenario, answers in SCENARIOS.items():
         history = [opening]
-        for turn, answer in enumerate(answers, start=1):
+        # Termine le parcours si les réponses du scénario ne couvrent pas les trois questions.
+        replies = answers + ("Je préfère passer.",) * 3
+        for turn, answer in enumerate(replies, start=1):
             question = history[-1]["content"]
             history.append({"role": "user", "content": answer})
             result = request(f"{base_url}/api/conversation/turn", {"messages": history})
@@ -48,6 +50,8 @@ def run(base_url):
                 "scenario": scenario, "turn": turn, "question": question,
                 "answer": answer, **result,
             }, ensure_ascii=False), flush=True)
+            if result.get("done"):
+                break
             history.append({"role": "assistant", "content": result["reply"]})
 
 

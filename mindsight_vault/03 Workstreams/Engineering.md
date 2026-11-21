@@ -66,15 +66,24 @@ python3 -m app.main --export mindsight-demo.html
 
 Le navigateur ouvre une session avec `POST /api/conversation/session`, puis
 envoie l’historique, l’identifiant de session et un identifiant d’envoi
-à `POST /api/conversation/turn`. Le serveur renvoie la relance pendant que
-l’analyste traite le tour. Un renvoi avec le même identifiant et le même
-historique réutilise la relance obtenue lors du premier envoi.
+à `POST /api/conversation/turn`. Le serveur attend les observations du tour
+pour décider de la suite. Il pose toujours les trois questions fixes.
+Un ressenti personnel clair est recherché séparément pour chaque question.
+Tant qu’il manque, le serveur peut relancer deux fois sur la question en
+cours. Au premier ressenti clair, après deux relances ou si la personne
+demande de passer, le serveur avance. Après la dernière question, avancer
+signifie terminer avec `done: true`. En cas d’échec de l’observation,
+une relance préparée est utilisée si le budget le permet. Le mode simulé
+applique le même plafond avec des relances préparées. Un renvoi avec le même identifiant et
+le même historique réutilise le résultat du premier envoi.
 
-L’analyste Haystack relève les observations et contrôle leurs citations avant
-de les interpréter selon `app/dimensions.yaml`. Les citations et leurs positions
+L’analyste Haystack relève les observations et contrôle leurs citations.
+Pour le chat, l’interprétation selon `app/dimensions.yaml` réutilise ensuite
+ces observations en arrière-plan, y compris au dernier tour. Les citations et leurs positions
 sont calculées par rapport à la réponse validée par le serveur. Les clients
 qui transmettent seulement l’historique à `/api/conversation/turn` reçoivent
-la relance et l’extraction locale dans le même JSON, avec les tableaux
+la prochaine question et l’extraction du tour dans le même JSON.
+L’extraction comprend les tableaux
 `visual_elements`, `expressed_feelings`, `observations` et `dimensions`.
 Pour `dimensions`, `[]` indique une analyse sans lecture retenue, et `null`
 une passe d’interprétation indisponible.
@@ -91,8 +100,8 @@ Chaque tour analysé ajoute une ligne à `test-results.jsonl`. Elle contient
 la question, la réponse de l’utilisateur, la relance et l’état de l’analyse.
 Le champ `extraction` conserve les éléments visuels, les ressentis exprimés,
 les observations citées et les dimensions interprétées pour ce tour.
-Le champ `quantification` contient la version du catalogue, les appuis,
-les contre-appuis, le nombre d’épisodes et les références des indices retenus.
+Le champ `quantification` contient la version du catalogue, les scores,
+le nombre d’épisodes et les références des indices retenus.
 Pour le chat, les valeurs sont cumulées dans la session et accompagnées de
 sa révision. Pour un appel sans identifiant de session, elles portent sur
 le tour analysé.
@@ -107,11 +116,27 @@ python3 -m app.main --reasoning
 ```
 
 Le panneau du chat montre les citations validées et leur attribution, les
-interprétations par tour, puis l’état des 17 dimensions. Pour une dimension
-documentée, le calcul affiche les poids retenus par épisode, les appuis et
-les contre-appuis. Les lectures sont des interprétations situées du discours.
+interprétations par tour, puis l’état des 16 dimensions. Pour une dimension
+documentée, le calcul affiche les points retenus par épisode.
+Les lectures sont des interprétations situées du discours.
 Ajouter `--record` pour conserver également la trace de validation dans le
 journal. Avec `--simulate`, le panneau indique que l’analyse est simulée.
+
+## Scores des tempéraments au fil de la session
+
+Le catalogue est dans `app/dimensions.yaml`. La force de proposition est
+présentée dans la famille Bonus et suit le même calcul que les autres traits.
+Un indice direct vaut 4 points et un indice indirect vaut 2 points. Pour
+chaque trait, seul l’indice le plus fort d’un même épisode est conservé.
+Les points des épisodes distincts s’additionnent jusqu’à 10. Une réponse
+sans nouvel indice laisse le score tel quel. Le score commence à 0,
+avec le statut `sans_indice`.
+
+Le chat, le journal et le flux MCP reçoivent le calcul après chaque tour
+analysé. Le signal `appui` vaut `score / 10` pour les consommateurs du
+flux existant. L’introversion et l’absence de confiance en soi
+demandent leurs propres indices. Les choix narratifs fictifs peuvent apporter
+un appui indirect pour la créativité, l’humour et la rêverie.
 
 ## Architecture et raccord à TouchDesigner
 
@@ -120,7 +145,7 @@ journal. Avec `--simulate`, le panneau indique que l’analyse est simulée.
 | Conversation | `app/dialogue.py`, `app/prompts.json`, `app/static/chat.js` | Vérifier l’historique, définir le préprompt et afficher la prochaine question. |
 | Extraction | `app/extraction.py`, `app/dimensions.yaml` | Relever les observations citées, puis les interpréter avec les fiches du catalogue. |
 | Serveur | `app/server.py` | Coordonner les tours et conserver en mémoire les épisodes et les analyses de la session. |
-| Quantification | `app/quantification.py` | Calculer l’appui et le contre-appui en plafonnant la contribution de chaque épisode. |
+| Quantification | `app/quantification.py` | Cumuler les points d’appui par épisode avec un plafond de 10 par trait. |
 | Animation | `app/mcp_server.py`, `visualization/mcp_to_osc.py` | Lire les révisions du portrait sur MCP et envoyer les valeurs configurées à TouchDesigner. |
 | Démarrage et accès au modèle | `app/main.py`, `app/openrouter.py` | Démarrer le serveur local et envoyer les requêtes à OpenRouter. |
 
@@ -155,3 +180,31 @@ python3 -m unittest discover -s tests -v
 Le test de bout en bout utilise un fournisseur de modèle local, la vraie
 connexion MCP et un récepteur UDP. Il vérifie la déduplication des envois,
 le regroupement des épisodes et les valeurs OSC avec des récits fictifs.
+
+## Tableau final des scores
+
+À la fin de la conversation, le tableau affiche les 16 traits de la session
+après l’analyse du dernier tour, y compris sans `--reasoning`.
+Le tableau reprend le score cumulé de chaque trait. Le statut
+`sans_indice` indique que le récit n’a fourni aucun appui pour ce trait.
+
+`GET /api/conversation/session/{session_id}/scores` renvoie le même tableau
+en JSON. Tant que la session continue ou que le dernier tour est en cours
+d’analyse, `ready` vaut `false` et `traits` est vide.
+
+```json
+{
+  "session_id": "identifiant-de-session",
+  "catalog_version": 4,
+  "through_turn": 4,
+  "analysis_status": "ready",
+  "ready": true,
+  "traits": [
+    {"id": "humour", "label": "Humour", "score": 2, "status": "documentee"}
+  ]
+}
+```
+
+L’exemple montre une ligne. La réponse finale comprend tout le catalogue.
+Le futur raccord TouchDesigner pourra utiliser les identifiants et scores
+numériques de ce format.

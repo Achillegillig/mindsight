@@ -13,10 +13,13 @@ from threading import Lock
 from uuid import uuid4
 
 from .azure_speech import SpeechError
-from .dialogue import DIRECTORY, OPENING, PromptError, demo_reply, read_system_prompt, validate_messages
-from .extraction import ExtractionError, extract_turn
+from .dialogue import (
+    CLOSING, DIRECTORY, OPENING, QUESTIONS, PromptError, next_step,
+    read_system_prompt, validate_messages,
+)
+from .extraction import ExtractionError, extract_turn, observe_turn
 from .openrouter import OpenRouterError, generate_reply
-from .quantification import quantify_dimensions
+from .quantification import quantify_dimensions, scores_on_ten
 
 STATIC = {
     "/": ("index.html", "text/html"),
@@ -70,19 +73,21 @@ class Session:
     dialogue_lock: Lock = field(default_factory=Lock)
     state_lock: Lock = field(default_factory=Lock)
     draining: bool = False
+    finished_turn: int | None = None
     snapshot: dict = field(default_factory=dict)
     reasoning_turns: list = field(default_factory=list)
 
 
 class ConversationService:
     def __init__(self, catalog, *, model=None, api_key=None, record_path=None, reasoning=False,
-                 extractor=extract_turn, dialogue=generate_reply):
+                 extractor=extract_turn, observer=observe_turn, dialogue=generate_reply):
         self.catalog = catalog
         self.model = model
         self.api_key = api_key
         self.record_path = record_path
         self.reasoning = reasoning
         self.extractor = extractor
+        self.observer = observer
         self.dialogue = dialogue
         self.executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="mindsight")
         self.sessions = {}
@@ -114,6 +119,20 @@ class ConversationService:
         with session.state_lock:
             return deepcopy(session.snapshot)
 
+    def get_scores(self, session_id):
+        session = self.get_session(session_id)
+        with session.state_lock:
+            snapshot = session.snapshot
+            ready = session.finished_turn is not None and snapshot["through_turn"] >= session.finished_turn
+            return {
+                "session_id": session_id,
+                "catalog_version": snapshot["catalog_version"],
+                "through_turn": snapshot["through_turn"],
+                "analysis_status": snapshot["analysis_status"],
+                "ready": ready,
+                "traits": scores_on_ten(snapshot["dimensions"]) if ready else [],
+            }
+
     def get_reasoning(self, session_id):
         session = self.get_session(session_id)
         with session.state_lock:
@@ -123,11 +142,24 @@ class ConversationService:
                 "turns": session.reasoning_turns,
             })
 
-    def analyze(self, messages, known_episodes=()):
+    def observe(self, messages):
+        try:
+            return self.observer(
+                self.api_key, self.model, messages[-2]["content"], messages[-1]["content"],
+                include_trace=self.reasoning,
+            )
+        except ExtractionError:
+            LOGGER.warning("Observations indisponibles pour un tour.")
+        except Exception:
+            LOGGER.error("Erreur interne durant l’observation d’un tour.")
+        return None
+
+    def analyze(self, messages, known_episodes=(), *, observed=None):
         try:
             return self.extractor(
                 self.api_key, self.model, messages[-2]["content"], messages[-1]["content"],
                 catalog=self.catalog, known_episodes=known_episodes, include_trace=self.reasoning,
+                observed=observed,
             )
         except ExtractionError:
             LOGGER.warning("Extraction indisponible pour un tour.")
@@ -135,10 +167,21 @@ class ConversationService:
             LOGGER.error("Erreur interne durant l’analyse d’un tour.")
         return None
 
-    def reply(self, messages):
-        if not self.model:
-            return demo_reply(messages)
-        return self.dialogue(self.api_key, self.model, read_system_prompt(), messages)
+    def reply(self, messages, observations):
+        has_feeling = bool(observations and observations.get("expressed_feelings"))
+        step, reply = next_step(messages, has_feeling=has_feeling)
+        if step == "followup" and self.model and observations is not None:
+            prompt = read_system_prompt()
+            try:
+                generated = self.dialogue(self.api_key, self.model, prompt, messages[-2:])
+                previous_questions = {item["content"] for item in messages[::2]}
+                if (generated not in previous_questions and generated not in QUESTIONS
+                        and generated.endswith("?") and generated.count("?") == 1
+                        and len(generated) <= 220):
+                    reply = generated
+            except OpenRouterError:
+                LOGGER.warning("Relance indisponible. Une question préparée est utilisée.")
+        return reply, step == "done"
 
     def record(self, messages, result, *, snapshot=None):
         if self.record_path is None:
@@ -168,8 +211,11 @@ class ConversationService:
             LOGGER.error("Écriture du journal de test impossible : %s", error)
 
     def process_legacy_turn(self, messages):
-        job = self.executor.submit(self.analyze, messages) if self.model else None
-        result = {"reply": self.reply(messages), "extraction": job.result() if job else None}
+        if messages[-2]["content"] == CLOSING:
+            raise TurnConflict("Cette conversation est terminée.")
+        extraction = self.analyze(messages) if self.model else None
+        reply, done = self.reply(messages, extraction)
+        result = {"reply": reply, "extraction": extraction, "done": done}
         self.record(messages, result)
         return result
 
@@ -185,15 +231,21 @@ class ConversationService:
             if messages[:-1] != session.history:
                 raise TurnConflict("L’historique ne correspond plus à cette session.")
 
-            reply = self.reply(messages)
+            if session.history[-1]["content"] == CLOSING:
+                raise TurnConflict("Cette conversation est terminée.")
+
+            observations = self.observe(messages) if self.model else None
+            reply, done = self.reply(messages, observations)
             session.history = [*messages, {"role": "assistant", "content": reply}]
             turn = len(messages) // 2
             status = "pending" if self.model else "simulated"
-            result = {"reply": reply, "extraction": None, "analysis_status": status}
+            result = {"reply": reply, "extraction": None, "analysis_status": status, "done": done}
             with session.state_lock:
+                if done:
+                    session.finished_turn = turn
                 session.snapshot.update(latest_turn=turn, analysis_status=status)
                 if self.model:
-                    session.queue.append((turn, messages, reply))
+                    session.queue.append((turn, messages, reply, done, observations))
                     if not session.draining:
                         session.draining = True
                         self.executor.submit(self.drain_session, session)
@@ -211,9 +263,9 @@ class ConversationService:
                 if not session.queue:
                     session.draining = False
                     return
-                turn, messages, reply = session.queue.popleft()
+                turn, messages, reply, done, observations = session.queue.popleft()
                 known = [{"id": key, "label": label} for key, label in list(session.episodes.items())[-20:]]
-            extraction = self.analyze(messages, known)
+            extraction = self.analyze(messages, known, observed=observations) if observations is not None else None
             links = extraction["dimensions"] if extraction is not None else None
             status = analysis_status(extraction)
             with session.state_lock:
@@ -236,13 +288,15 @@ class ConversationService:
                 )
                 snapshot = session.snapshot.copy()
             self.record(messages, {
-                "reply": reply, "extraction": extraction, "analysis_status": status,
+                "reply": reply, "extraction": extraction, "analysis_status": status, "done": done,
             }, snapshot=snapshot)
 
     @staticmethod
     def collect_indices(episodes, turn, links):
         indices = []
         for link in links:
+            if link.get("relation", "appui") != "appui":
+                continue
             episode = link["episode_ref"]
             if episode.startswith("new:"):
                 episode = f"t{turn}-{episode[4:]}"
@@ -250,7 +304,7 @@ class ConversationService:
             elif episode not in episodes:
                 episode = "unknown"
             indices.append({
-                "dimension_id": link["dimension_id"], "relation": link["relation"],
+                "dimension_id": link["dimension_id"],
                 "strength": link["strength"], "episode_id": episode,
                 "source_refs": [f"t{turn}:{item}" for item in link["observation_ids"]],
             })
@@ -278,6 +332,14 @@ class ConversationHandler(BaseHTTPRequestHandler):
             self.send_json(200, OPENING)
         elif self.path == "/api/conversation/mode":
             self.send_json(200, {"model": self.service.model, "azureSpeech": self.speech is not None})
+        elif self.path.startswith(f"{SESSION_PATH}/") and self.path.endswith("/scores"):
+            session_id = self.path.removeprefix(f"{SESSION_PATH}/").removesuffix("/scores")
+            try:
+                scores = self.service.get_scores(session_id)
+            except KeyError:
+                self.send_json(404, {"detail": "Session introuvable."})
+            else:
+                self.send_json(200, scores)
         elif self.service.reasoning and self.path.startswith(f"{SESSION_PATH}/") and self.path.endswith("/reasoning"):
             session_id = self.path.removeprefix(f"{SESSION_PATH}/").removesuffix("/reasoning")
             try:

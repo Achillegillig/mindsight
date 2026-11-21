@@ -8,11 +8,19 @@ const reasoning = document.querySelector("#reasoning");
 const reasoningStatus = document.querySelector("#reasoning-status");
 const reasoningTurns = document.querySelector("#reasoning-turns");
 const reasoningDimensions = document.querySelector("#reasoning-dimensions");
+const page = document.querySelector("main");
+const scoresPanel = document.querySelector("#trait-scores");
+const scoresStatus = document.querySelector("#trait-scores-status");
+const scoresTable = document.querySelector("#trait-scores-table");
+const scoresBody = scoresTable.querySelector("tbody");
+const scoresNote = document.querySelector("#trait-scores-note");
 const questionVoice = createQuestionVoice();
 let history = [];
+let finished = false;
 let sessionId;
 let pendingRequest;
 let reasoningRun = 0;
+let scoresRun = 0;
 const demo = document.querySelector("#demo-data");
 
 const analysisLabels = {
@@ -28,7 +36,6 @@ const modes = {
   vecu: "Vécu raconté", declaration: "Déclaration", fiction: "Fiction", citation: "Citation",
   hypothetique: "Hypothèse",
 };
-const relations = { appui: "Appui", contre_indice: "Contre-indice" };
 const strengths = { direct: "direct", indirect: "indirect" };
 const formatNumber = new Intl.NumberFormat("fr", { maximumFractionDigits: 3 });
 
@@ -69,7 +76,7 @@ function renderReasoningTurn(turn, labels) {
     const refs = item.observation_ids.map((id) => `t${turn.turn}:${id}`).join(", ");
     const episode = turn.episode_ids[index];
     const labelEpisode = episode === "unknown" ? "Épisode incertain" : `Épisode ${episode}`;
-    links.append(textElement("li", `${label} · ${relations[item.relation]} ${strengths[item.strength]}. `
+    links.append(textElement("li", `${label} · Appui ${strengths[item.strength]}. `
       + `${item.reading} (${refs} · ${labelEpisode})`));
   }
   interpretation.append(links.childElementCount ? links : textElement("p",
@@ -81,25 +88,22 @@ function renderReasoningTurn(turn, labels) {
 
 function renderAttribution(item) {
   const details = document.createElement("details");
-  let state = "Sans indice retenu";
-  if (item.appui > 0) state = item.contre_appui > 0 ? "Attribution nuancée" : "Appuyée dans le récit";
-  else if (item.contre_appui > 0) state = "Contre-indices seuls";
+  const state = item.status === "sans_indice" ? "Sans indice retenu" : "Appuyée dans le récit";
   details.append(textElement("summary", `${item.label} · ${state}`));
   details.append(textElement("p", item.definition));
-  if (item.appui !== null) {
+  if (item.status !== "sans_indice") {
     const calc = item.calculation;
     const n = formatNumber.format;
     details.append(textElement("p",
-      `Appui ${n(item.appui)} · Contre-appui ${n(item.contre_appui)} · Épisodes ${item.episode_count}`));
+      `Score ${n(item.score)} / 10 · Épisodes ${item.episode_count}`));
     const calculation = textElement("p",
-      `Calcul S / (S + k) · Somme des appuis ${n(calc.support_total)} · `
-      + `Somme des contre-appuis ${n(calc.counter_total)} · k = ${n(calc.k)}`);
+      `Total des points ${n(calc.total_points)} · Plafond ${n(calc.max_score)}`);
     calculation.className = "reasoning-note";
     details.append(calculation);
     const sources = document.createElement("ul");
     for (const index of calc.selected) {
       const episode = index.episode_id === "unknown" ? "Épisode incertain" : index.episode_id;
-      sources.append(textElement("li", `${relations[index.relation]} · ${episode} · `
+      sources.append(textElement("li", `${episode} · `
         + `Poids ${n(index.weight)} · ${index.source_refs.join(", ")}`));
     }
     details.append(sources);
@@ -161,6 +165,52 @@ async function refreshReasoning(targetTurn = 0) {
   }
 }
 
+function renderScores(snapshot) {
+  const evidenceLabels = {
+    sans_indice: "Aucun indice",
+    documentee: "Indices relevés",
+  };
+  scoresBody.replaceChildren(...snapshot.traits.map((trait) => {
+    const row = document.createElement("tr");
+    const label = textElement("th", trait.label);
+    label.scope = "row";
+    row.append(label, textElement("td", formatNumber.format(trait.score)),
+      textElement("td", evidenceLabels[trait.status]));
+    return row;
+  }));
+  scoresStatus.textContent = analysisLabels[snapshot.analysis_status];
+  scoresTable.hidden = false;
+  scoresNote.hidden = false;
+}
+
+async function showFinalScores() {
+  scoresPanel.hidden = false;
+  page.classList.add("with-scores");
+  if (demo) {
+    scoresStatus.textContent = "L’analyse des traits est disponible avec le serveur MindSight.";
+    return;
+  }
+  const run = ++scoresRun;
+  const url = `/api/conversation/session/${encodeURIComponent(sessionId)}/scores`;
+  scoresStatus.textContent = "Calcul des scores en cours…";
+  while (run === scoresRun) {
+    try {
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) throw new Error();
+      const snapshot = await response.json();
+      if (run !== scoresRun) return;
+      if (snapshot.ready) {
+        renderScores(snapshot);
+        return;
+      }
+    } catch {
+      if (run === scoresRun) scoresStatus.textContent = "Impossible de charger les scores.";
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 350));
+  }
+}
+
 async function openSession() {
   if (demo) return { opening: JSON.parse(demo.textContent).opening };
   const response = await fetch("/api/conversation/session", { method: "POST" });
@@ -170,8 +220,16 @@ async function openSession() {
 
 async function getReply(messages) {
   if (demo) {
-    const { replies } = JSON.parse(demo.textContent);
-    return replies[(messages.length / 2 - 1) % replies.length];
+    const { questions, replies, closing, skipPattern } = JSON.parse(demo.textContent);
+    const assistantMessages = messages.filter(({ role }) => role === "assistant");
+    const questionPositions = assistantMessages
+      .map(({ content }, index) => questions.includes(content) ? index : -1)
+      .filter((index) => index >= 0);
+    const asked = questionPositions.length;
+    const followups = assistantMessages.length - questionPositions.at(-1) - 1;
+    const skip = new RegExp(skipPattern, "i").test(messages.at(-1).content);
+    if (!skip && followups < replies.length) return { reply: replies[followups], done: false };
+    return { reply: questions[asked] ?? closing, done: asked === questions.length };
   }
   const response = await fetch("/api/conversation/turn", {
     method: "POST",
@@ -184,7 +242,7 @@ async function getReply(messages) {
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.detail);
-  return result.reply;
+  return result;
 }
 
 function append(message) {
@@ -200,8 +258,9 @@ function append(message) {
 
 function setBusy(busy) {
   reset.disabled = busy;
-  answer.readOnly = busy;
-  send.disabled = busy || history.length === 0;
+  form.hidden = finished;
+  answer.readOnly = busy || finished;
+  send.disabled = busy || finished || history.length === 0;
 }
 
 async function start() {
@@ -212,6 +271,13 @@ async function start() {
     const { opening, session_id, reasoning: showReasoning } = await openSession();
     sessionId = session_id;
     reasoningRun++;
+    scoresRun++;
+    scoresPanel.hidden = true;
+    page.classList.remove("with-scores");
+    scoresTable.hidden = true;
+    scoresNote.hidden = true;
+    scoresBody.replaceChildren();
+    scoresStatus.textContent = "";
     reasoning.hidden = !showReasoning;
     reasoningTurns.replaceChildren();
     reasoningDimensions.replaceChildren();
@@ -219,6 +285,7 @@ async function start() {
     void refreshReasoning();
     pendingRequest = undefined;
     history = [opening];
+    finished = false;
     messages.replaceChildren();
     append(opening);
     questionVoice.setQuestion(opening.content);
@@ -248,31 +315,33 @@ form.addEventListener("submit", async (event) => {
     pendingRequest = { id: crypto.randomUUID(), content };
   }
   setBusy(true);
-  status.textContent = "Relance en cours…";
+  status.textContent = "Analyse en cours…";
   try {
-    const reply = await getReply([...history, userMessage]);
+    const { reply, done } = await getReply([...history, userMessage]);
+    finished = done;
     const assistantMessage = { role: "assistant", content: reply };
     history.push(userMessage, assistantMessage);
     pendingRequest = undefined;
     append(userMessage);
     append(assistantMessage);
-    questionVoice.setQuestion(reply);
+    if (done) void showFinalScores();
+    else questionVoice.setQuestion(reply);
     void refreshReasoning((history.length - 1) / 2);
     answer.value = "";
-    status.textContent = "";
+    status.textContent = finished ? "Conversation terminée." : "";
   } catch (error) {
     status.textContent = error instanceof TypeError || !error.message
       ? "La relance a échoué. Ta réponse est conservée."
       : error.message + " Ta réponse est conservée.";
   } finally {
     setBusy(false);
-    answer.focus();
+    if (!finished) answer.focus();
   }
 });
 
 reset.addEventListener("click", async () => {
   await start();
-  answer.focus();
+  if (!finished) answer.focus();
 });
 start();
 

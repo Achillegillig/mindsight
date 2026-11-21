@@ -14,27 +14,40 @@
       <div><h1>MindSight</h1><p id="mode">Conversation simulée</p></div>
       <button id="reset" type="button">Recommencer</button>
     </header>
-    <div class="voice-controls">
-      <button id="voice-toggle" type="button" disabled>Activer la voix</button>
-      <button id="voice-replay" type="button" disabled>Réécouter</button>
-      <p id="voice-status" role="status"></p>
+    <div class="session-layout">
+      <div class="chat-column">
+        <div class="voice-controls">
+          <button id="voice-toggle" type="button" disabled>Activer la voix</button>
+          <button id="voice-replay" type="button" disabled>Réécouter</button>
+          <p id="voice-status" role="status"></p>
+        </div>
+        <ol id="messages" aria-label="Conversation" aria-live="polite"></ol>
+        <form>
+          <label for="answer">Ta réponse</label>
+          <textarea id="answer" name="answer" rows="3" maxlength="2000" required></textarea>
+          <button id="send" type="submit" disabled>Envoyer</button>
+        </form>
+        <p id="status" role="status"></p>
+        <section id="reasoning" aria-labelledby="reasoning-title" hidden>
+          <h2 id="reasoning-title">Analyse des traits</h2>
+          <p id="reasoning-status" role="status"></p>
+          <h3>Indices et interprétations par tour</h3>
+          <div id="reasoning-turns"></div>
+          <h3>État des attributions</h3>
+          <p class="reasoning-note">Les valeurs reflètent les indices recueillis dans cet échange. Le calcul retient l’indice le plus fort de chaque épisode.</p>
+          <div id="reasoning-dimensions"></div>
+        </section>
+      </div>
+      <section id="trait-scores" aria-labelledby="trait-scores-title" hidden>
+        <h2 id="trait-scores-title">Scores des traits</h2>
+        <p id="trait-scores-status" role="status"></p>
+        <table id="trait-scores-table" aria-describedby="trait-scores-note" hidden>
+          <thead><tr><th scope="col">Trait</th><th scope="col">Score sur 10</th><th scope="col">Indices</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <p id="trait-scores-note" class="reasoning-note" hidden>Le score reflète les indices d’appui recueillis pendant cette conversation. Un 0 indique qu’aucun appui n’a été retenu pour ce trait.</p>
+      </section>
     </div>
-    <ol id="messages" aria-label="Conversation" aria-live="polite"></ol>
-    <form>
-      <label for="answer">Ta réponse</label>
-      <textarea id="answer" name="answer" rows="3" maxlength="2000" required></textarea>
-      <button id="send" type="submit" disabled>Envoyer</button>
-      <p id="status" role="status"></p>
-    </form>
-    <section id="reasoning" aria-labelledby="reasoning-title" hidden>
-      <h2 id="reasoning-title">Analyse des traits</h2>
-      <p id="reasoning-status" role="status"></p>
-      <h3>Indices et interprétations par tour</h3>
-      <div id="reasoning-turns"></div>
-      <h3>État des attributions</h3>
-      <p class="reasoning-note">Les valeurs reflètent les indices recueillis dans cet échange. Le calcul retient le poids maximal par épisode et par sens.</p>
-      <div id="reasoning-dimensions"></div>
-    </section>
   </main>
 </body>
 </html>

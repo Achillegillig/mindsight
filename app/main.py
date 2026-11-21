@@ -11,7 +11,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from .azure_speech import DEFAULT_STYLE, DEFAULT_VOICE, synthesize
-from .dialogue import CONFIG, DIRECTORY, OPENING
+from .dialogue import CONFIG, DIRECTORY, OPENING, SKIP_PATTERN
 from .openrouter import DEFAULT_MODEL
 
 
@@ -38,7 +38,10 @@ def export_demo(destination):
     styles = (static / "chat.css").read_text(encoding="utf-8")
     voices = (static / "voice.js").read_text(encoding="utf-8")
     script = (static / "chat.js").read_text(encoding="utf-8")
-    data = json.dumps({"opening": OPENING, "replies": CONFIG["demo_replies"]}, ensure_ascii=False)
+    data = json.dumps({
+        "opening": OPENING, "questions": CONFIG["questions"], "replies": CONFIG["demo_replies"],
+        "closing": CONFIG["closing"], "skipPattern": SKIP_PATTERN,
+    }, ensure_ascii=False)
     data = data.replace("<", "\\u003c")
     page = page.replace('<link rel="stylesheet" href="/static/chat.css">', f"<style>{styles}</style>")
     for filename in ("voice.js", "chat.js"):
