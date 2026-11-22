@@ -125,13 +125,17 @@ class ConversationService:
     def get_snapshot(self, session_id):
         session = self.get_session(session_id)
         with session.state_lock:
-            return deepcopy(session.snapshot)
+            return deepcopy({**session.snapshot, "ready": self.scores_ready(session)})
+
+    @staticmethod
+    def scores_ready(session):
+        return session.finished_turn is not None and session.snapshot["through_turn"] >= session.finished_turn
 
     def get_scores(self, session_id):
         session = self.get_session(session_id)
         with session.state_lock:
             snapshot = session.snapshot
-            ready = session.finished_turn is not None and snapshot["through_turn"] >= session.finished_turn
+            ready = self.scores_ready(session)
             return {
                 "session_id": session_id,
                 "catalog_version": snapshot["catalog_version"],

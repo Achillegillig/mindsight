@@ -6,6 +6,7 @@ import json
 import os
 import socket
 import subprocess
+import sys
 from contextlib import ExitStack
 from functools import partial
 from http.server import ThreadingHTTPServer
@@ -93,8 +94,10 @@ if __name__ == "__main__":
     parser.add_argument("--simulate", action="store_true", help="Utiliser les relances préparées.")
     parser.add_argument("--open", action="store_true", help="Ouvrir Firefox dès que le serveur écoute.")
     parser.add_argument("--auto", action="store_true", help="Ouvrir le chat en mode vocal automatique.")
-    parser.add_argument("--osc", action="store_true", help="Relier la dernière session ouverte au portrait TouchDesigner.")
-    parser.add_argument("--osc-port", type=int, default=9000, help="Port UDP de TouchDesigner avec --osc.")
+    portraits = parser.add_mutually_exclusive_group()
+    portraits.add_argument("--osc", action="store_true", help="Relier la dernière session ouverte au portrait TouchDesigner.")
+    portraits.add_argument("--opengl", action="store_true", help="Ouvrir le portrait OpenGL et exporter chaque révélation.")
+    parser.add_argument("--osc-port", type=int, default=9000, help="Port UDP du portrait.")
     parser.add_argument("--record", action="store_true", help="Enregistrer les tours dans test-results.jsonl.")
     parser.add_argument("--reasoning", action="store_true", help="Afficher les indices et les décisions d’attribution dans le chat.")
     parser.add_argument("--port", type=int, default=8000, help="Port du chat local (0 pour un port libre).")
@@ -102,8 +105,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.auto and args.export:
         parser.error("--auto nécessite le serveur MindSight.")
-    if args.osc and not 1 <= args.osc_port <= 65535:
+    if (args.osc or args.opengl) and not 1 <= args.osc_port <= 65535:
         parser.error("--osc-port doit être compris entre 1 et 65535.")
+    if args.opengl and args.export:
+        parser.error("--opengl nécessite le serveur MindSight.")
     if args.export:
         export_demo(args.export)
         print(f"Démo générée dans {args.export.resolve()}")
@@ -154,10 +159,21 @@ if __name__ == "__main__":
                 with ExitStack() as stack:
                     mcp_url = stack.enter_context(serve_mcp(service, args.mcp_port))
                     follow = None
-                    if args.osc:
-                        from visualization.mcp_to_osc import follow_portrait_sessions
+                    if args.osc or args.opengl:
+                        from visualization.mcp_to_osc import follow_portrait_sessions, stop_process
 
-                        follow = stack.enter_context(follow_portrait_sessions(mcp_url, args.osc_port))
+                        if args.opengl:
+                            environment = os.environ.copy()
+                            environment.pop("OPENROUTER_API_KEY", None)
+                            environment.pop("AZURE_SPEECH_KEY", None)
+                            portrait = subprocess.Popen([
+                                sys.executable, "-X", "utf8", "-m", "visualization.mindsight_opengl",
+                                "--session-reveal", "--osc-port", str(args.osc_port),
+                            ], env=environment)
+                            stack.callback(stop_process, portrait)
+                        follow = stack.enter_context(follow_portrait_sessions(
+                            mcp_url, args.osc_port, portrait_events=args.opengl,
+                        ))
                     handler = partial(
                         ConversationHandler, service=service, speech=speech,
                         transcription=transcription, auto=args.auto, on_session_created=follow,

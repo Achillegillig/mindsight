@@ -226,3 +226,4 @@ __marimo__/
 /.env.local
 /test-results.jsonl
 /mindsight-demo.html
+/videos/

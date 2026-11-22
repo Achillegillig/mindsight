@@ -54,8 +54,10 @@ def forward_snapshot(snapshot, channels, osc):
             osc.send_message(channel["address"], float(value) * channel.get("scale", 1.0))
 
 
-async def bridge(url, session_id, channels, osc, *, interval=0.25, once=False):
+async def bridge(url, session_id, channels, osc, *, interval=0.25, once=False, portrait_events=False):
     revision = -1
+    next_announcement = 0.0
+    clock = asyncio.get_running_loop()
     uri = AnyUrl(f"mindsight://sessions/{session_id}/dimensions")
     async with streamable_http_client(url) as (read, write, _):
         async with ClientSession(read, write) as client:
@@ -65,7 +67,17 @@ async def bridge(url, session_id, channels, osc, *, interval=0.25, once=False):
                 snapshot = json.loads(resource.contents[0].text)
                 if snapshot["session_id"] != session_id:
                     raise ValueError("Le résultat MCP appartient à une autre session.")
-                if snapshot["revision"] > revision:
+                changed = snapshot["revision"] > revision
+                if portrait_events and (changed or clock.time() >= next_announcement):
+                    if snapshot.get("ready"):
+                        profile = [session_id]
+                        for dimension in snapshot["dimensions"]:
+                            profile.extend((dimension["id"], float(dimension["score"])))
+                        osc.send_message("/portrait/reveal", profile)
+                    else:
+                        osc.send_message("/portrait/session", session_id)
+                    next_announcement = clock.time() + 2.0
+                if changed:
                     forward_snapshot(snapshot, channels, osc)
                     revision = snapshot["revision"]
                 if once:
@@ -73,35 +85,38 @@ async def bridge(url, session_id, channels, osc, *, interval=0.25, once=False):
                 await asyncio.sleep(interval)
 
 
+def stop_process(process):
+    if process is None or process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
 @contextmanager
-def follow_portrait_sessions(mcp_url, osc_port):
+def follow_portrait_sessions(mcp_url, osc_port, *, portrait_events=False):
     """Gère un pont OSC pour la dernière session ouverte dans le chat."""
     lock = Lock()
     process = None
     closed = False
-
-    def stop():
-        if process is None or process.poll() is not None:
-            return
-        process.terminate()
-        try:
-            process.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
-
     def follow(session_id):
         nonlocal process
         with lock:
             if closed:
                 return
-            stop()
+            stop_process(process)
             try:
-                process = subprocess.Popen([
+                command = [
                     sys.executable, "-X", "utf8", "-m", "visualization.mcp_to_osc",
                     "--session-id", session_id, "--mcp-url", mcp_url,
                     "--mapping", str(PORTRAIT_MAPPING_PATH), "--osc-port", str(osc_port),
-                ])
+                ]
+                if portrait_events:
+                    command.append("--portrait-events")
+                process = subprocess.Popen(command)
             except OSError as error:
                 print(f"Impossible de démarrer le pont OSC. {error}", file=sys.stderr, flush=True)
             else:
@@ -112,7 +127,7 @@ def follow_portrait_sessions(mcp_url, osc_port):
     finally:
         with lock:
             closed = True
-            stop()
+            stop_process(process)
 
 
 def main():
@@ -123,10 +138,12 @@ def main():
     parser.add_argument("--osc-port", type=int, default=DEFAULT_OSC_PORT)
     parser.add_argument("--mapping", type=Path, default=MAPPING_PATH)
     parser.add_argument("--once", action="store_true", help="Transmettre une seule révision.")
+    parser.add_argument("--portrait-events", action="store_true", help="Annoncer la session et le profil final OpenGL.")
     args = parser.parse_args()
     try:
         with SimpleUDPClient(args.osc_host, args.osc_port) as osc:
-            asyncio.run(bridge(args.mcp_url, args.session_id, load_mapping(args.mapping), osc, once=args.once))
+            asyncio.run(bridge(args.mcp_url, args.session_id, load_mapping(args.mapping), osc,
+                               once=args.once, portrait_events=args.portrait_events))
     except KeyboardInterrupt:
         pass
 

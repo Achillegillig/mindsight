@@ -1,6 +1,6 @@
 # MindSight — Guide technique du portrait OpenGL
 
-Le lecteur natif ouvre une fenêtre OpenGL indépendante. En direct, il reçoit les dimensions de la dernière conversation MindSight via le pont OSC existant. Le mode démo et le mode manuel permettent d’examiner le rendu seul. Ce guide suppose que le fichier `visualization/mindsight_opengl.py` est présent dans la copie locale du dépôt.
+Le lecteur natif ouvre une fenêtre OpenGL indépendante. En direct, il reçoit les dimensions de la dernière conversation MindSight via le pont OSC existant. Le mode démo et le mode manuel permettent d’examiner le rendu seul. [Lecteur OpenGL](../../visualization/mindsight_opengl.py) · [Version de référence du 22 novembre 2026](../../visualization/mindsight_opengl_reference_2026_11_22.py)
 
 ## Installation et démarrage
 
@@ -18,19 +18,15 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m visualization.mindsight_opengl --demo
 ```
 
-**Chat et visualisation en direct.** Renseigne `OPENROUTER_API_KEY` dans `.env` pour activer l’analyse de la conversation. Lance d’abord le lecteur dans un terminal, puis le chat dans un autre.
+**Chat et visualisation en direct.** Renseigne `OPENROUTER_API_KEY` dans `.env` pour activer l’analyse de la conversation. Installe FFmpeg avec l’encodeur `libx264` et rends `ffmpeg` accessible dans le `PATH` pour l’export vidéo. La commande suivante lance le serveur du chat et ouvre le lecteur OpenGL.
 
 ```powershell
-# Terminal 1
-.\.venv\Scripts\python.exe -m visualization.mindsight_opengl
+.\.venv\Scripts\python.exe -m app.main --opengl
 ```
 
-```powershell
-# Terminal 2
-.\.venv\Scripts\python.exe -m app.main --osc
-```
+Ouvre l’adresse affichée par `app.main`, généralement `http://127.0.0.1:8000`, puis démarre une conversation. Si le port OSC `9000` est occupé, ajoute `--osc-port 9001`. Avec `--simulate`, le chat utilise des relances préparées et les scores restent à zéro.
 
-Ouvre l’adresse affichée par `app.main`, généralement `http://127.0.0.1:8000`, puis démarre une conversation. Si le port OSC `9000` est occupé, ajoute `--osc-port 9001` aux deux commandes. Avec `--simulate` côté chat, les relances sont préenregistrées et le flux de dimensions reste au repos. Appuie sur `D` dans le lecteur pour tester l’animation dans ce mode.
+Dès que les scores finaux sont prêts, le cercle se transforme et le lecteur lance un export par session dans `videos/`. Le MP4 de 80 secondes montre le cercle et les six curseurs visuels pendant 30 secondes, puis la transformation et l’animation pendant 50 secondes. [Script d’export](../../visualization/export_mindsight_video.py)
 
 ## Réglage des dimensions
 
@@ -61,4 +57,4 @@ Pour démarrer avec plusieurs valeurs précises sur 10, répète `--trait`. Les 
 
 Pour valider un réglage, compare chaque trait à 0, 5 et 10, puis observe les profils mixtes avec `7` et les transitions rapides avec `8`. Le lecteur utilise par défaut 256 fibres de 96 particules, soit 24 576 particules. `--strands 160` permet de réduire la charge. Lors de la validation initiale, un profil dense à 1 920 × 1 080 a pris 15,9 ms par image en médiane sur Intel UHD.
 
-**Trait Torturée en direct.** Le mapping actuel de `main` envoie `/trait/torture` avec l’identifiant `torture`. Le lecteur conservé attend une entrée `angoisse` dans le mapping pour enregistrer les deux adresses. Dans cette configuration, la dimension reste au repos en direct. Elle se teste avec la touche `3` ou `--trait torture=8`. [Mapping actuel](../../visualization/mapping_traits.yaml)
+**Trait Torturée en direct.** Le lecteur accepte le canal `/trait/torture` du mapping actuel et l’identifiant historique `angoisse`. Pour isoler la dimension, utilise la touche `3` ou `--trait torture=8`. [Mapping OSC](../../visualization/mapping_traits.yaml)
