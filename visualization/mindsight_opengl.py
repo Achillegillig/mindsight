@@ -215,31 +215,46 @@ void main() {
     float width = (0.47 + 0.49 * cos(2.4 * u + 0.4 * sin(0.23 * phase)));
     float twist = angle + 1.82 * u + 0.36 * sin(0.41 * phase + 2.0 * u);
     float wake = sin(3.6 * u - 0.56 * phase + 0.34 * band);
+    float freeY = 0.96 * sin(2.84 * u - 0.36 * band + 0.34 * sin(0.31 * phase))
+        - 0.46 * u + 0.52 * (band - 1.0);
+    float freeZ = plane + 0.75 * sin(3.68 * u + 0.32 * phase);
+    float driftY = 0.33 * sin(6.6 * u - 0.39 * phase + angle);
     vec3 target = vec3(
         (4.80 - 0.22 * band) * u + 0.22 * cos(twist) * width + 0.14 * wake,
-        0.96 * sin(2.84 * u - 0.36 * band + 0.34 * sin(0.31 * phase))
-            - 0.46 * u + 0.52 * (band - 1.0) + 1.50 * radius * width * cos(twist)
-            + 0.33 * sin(6.6 * u - 0.39 * phase + angle),
-        plane + 0.75 * sin(3.68 * u + 0.32 * phase) + 1.55 * radius * width * sin(twist)
+        freeY + 1.50 * radius * width * cos(twist) + driftY,
+        freeZ + 1.55 * radius * width * sin(twist)
     );
-    float loose = 1.0 - step(0.085, hash(lane + 6u));
-    target += loose * (grain * vec3(1.55, 2.85, 1.75) + vec3(0.0, 0.59 * cos(angle), 0.0));
 
-    // Les puits analytiques partagent un axe incliné et des rayons quantifiés.
+    float braid = smoothstep(0.0, 1.0, traits.x);
+    if (traits.x > 0.0) {
+        // Les fibres gardent leur position dans la longueur. Dans la section
+        // transversale, elles se resserrent autour de trois phases à 120°.
+        float spacing = TAU / 3.0;
+        float bundle = spacing * floor(angle / spacing + 0.5);
+        float spread = 0.38 * (hash(lane + 14u) - 0.5);
+        float grouping = braid * (2.0 - braid);
+        float azimuth = mix(angle, bundle + spread, grouping)
+            + (1.82 + 3.46 * traits.x) * u
+            + (1.0 - grouping) * 0.36 * sin(0.41 * phase + 2.0 * u)
+            + traits.x * (0.31 * phase + 0.10 * sin(PI * u - 0.39 * phase));
+        float envelope = 0.72 + 0.28 * (1.0 - u * u);
+        float thickness = 1.40 + 0.43 * (hash(lane + 3u) - 0.5);
+        float breathing = 1.0 + 0.08 * sin(3.8 * u - 0.70 * phase);
+        float section = thickness * envelope * breathing;
+        vec2 crossSection = mix(vec2(1.50, 1.55) * radius * width, section * vec2(1.0, 1.17), braid);
+        vec2 axis = mix(vec2(freeY + driftY, freeZ),
+                        vec2(0.56 * u + 0.16 * sin(2.2 * u - 0.28 * phase),
+                             0.58 * (band - 1.0) + 0.14 * sin(1.8 * u + 0.21 * phase)), grouping);
+        target.x = mix(target.x, 4.75 * u, braid);
+        target.yz = axis + crossSection * vec2(cos(azimuth), sin(azimuth));
+    }
+    float loose = 1.0 - step(0.085, hash(lane + 6u));
+    target += loose * (1.0 - 0.64 * braid)
+        * (grain * vec3(1.55, 2.85, 1.75) + vec3(0.0, 0.59 * cos(angle), 0.0));
+
+    // Phase locale des poussées enthousiastes.
     float theta = PI * (1.0 + u) + 0.09 * sin(0.23 * phase);
     theta += floor(8.0 * hash(lane + 7u)) * TAU / 8.0;
-    float ring = 0.68 + 0.62 * floor(6.0 * hash(lane + 3u));
-    ring += 0.10 * sin(0.43 * phase + theta * 3.0 + band);
-    vec3 concentric = vec3(ring * cos(theta), 0.60 * ring * sin(theta),
-                           plane + 0.53 * ring * sin(theta));
-    float spoke = floor(12.0 * hash(lane + 12u)) * TAU / 12.0 + 0.09 * sin(0.23 * phase);
-    float radial = mix(0.35, 3.76, (u + 1.0) * 0.5);
-    vec3 segment = vec3(radial * cos(spoke), 0.60 * radial * sin(spoke),
-                        plane + 0.53 * radial * sin(spoke));
-    vec3 ordered = hash(lane + 15u) < 0.23 ? segment : concentric;
-    ordered.y += 0.16 * ordered.x + 0.20 * (band - 1.0);
-    float structure = traits.x * (0.88 + 0.11 * hash(lane + 16u));
-    target = mix(target, ordered, structure);
 
     // Une même impulsion ouvre le courant et pousse ses particules vers le haut.
     float cycle = fract(seconds / 6.8);

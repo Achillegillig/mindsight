@@ -28,6 +28,8 @@ Ouvre l’adresse affichée par `app.main`, généralement `http://127.0.0.1:800
 
 Dès que les scores finaux sont prêts, le cercle se transforme et le lecteur lance un export par session dans `videos/`. Le MP4 de 80 secondes montre le cercle et les six curseurs visuels pendant 30 secondes, puis la transformation et l’animation pendant 50 secondes. [Script d’export](../../visualization/export_mindsight_video.py)
 
+Pour les vidéos de révélation, place la piste dans `videos/soundtrack/`. Le dossier `videos/soundrack/` du montage local est également reconnu. L’export cale le début de la vidéo à **14 min 40 s** dans le morceau. En export manuel d’une révélation, `--soundtrack` sélectionne un fichier et `--silent` permet un rendu silencieux. L’export des exemples par dimension avec curseur est silencieux.
+
 ## Réglage des dimensions
 
 Clique dans la fenêtre OpenGL avant d’utiliser le clavier.

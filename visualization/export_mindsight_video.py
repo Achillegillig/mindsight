@@ -1,4 +1,4 @@
-"""Exporter les dimensions ou la révélation MindSight dans une vidéo MP4 silencieuse."""
+"""Exporter les dimensions ou la révélation MindSight dans une vidéo MP4."""
 
 import argparse
 from contextlib import contextmanager
@@ -11,9 +11,9 @@ import tempfile
 from time import sleep
 
 if __package__:
-    from .mindsight_opengl import DEFAULT_STRANDS, IDLE, LABELS, Renderer, create_window, gl
+    from .mindsight_opengl import DEFAULT_STRANDS, IDLE, LABELS, VIDEO_DIRECTORY, Renderer, create_window, gl
 else:
-    from mindsight_opengl import DEFAULT_STRANDS, IDLE, LABELS, Renderer, create_window, gl
+    from mindsight_opengl import DEFAULT_STRANDS, IDLE, LABELS, VIDEO_DIRECTORY, Renderer, create_window, gl
 
 from pyglet import graphics, shapes, text, window
 from pyglet.math import Mat4
@@ -22,6 +22,8 @@ from pyglet.math import Mat4
 TURNS = (0.0, 1.0, 0.0, 1.0, 0.0)
 REVEAL_HOLD = 30.0
 REVEAL_DURATION = 80.0
+SOUNDTRACK_START = "00:14:40"
+AUDIO_EXTENSIONS = {".aac", ".flac", ".m4a", ".mp3", ".ogg", ".opus", ".wav"}
 
 
 def level_at_frame(frame, ramp_frames, hold_frames):
@@ -212,10 +214,30 @@ def publish_video(encoded, destination, *, overwrite):
             sleep(0.25)
 
 
+def soundtrack_for(args):
+    if args.reveal is None or args.silent:
+        return None
+    if args.soundtrack is not None:
+        if not args.soundtrack.is_file():
+            raise FileNotFoundError(f"Piste audio introuvable. {args.soundtrack}")
+        return args.soundtrack.resolve()
+    folders = (VIDEO_DIRECTORY / "soundtrack", VIDEO_DIRECTORY.parent / "soundtrack", VIDEO_DIRECTORY / "soundrack")
+    for folder in folders:
+        if not folder.is_dir():
+            continue
+        tracks = [track for track in folder.iterdir() if track.is_file() and track.suffix.lower() in AUDIO_EXTENSIONS]
+        if len(tracks) > 1:
+            raise ValueError(f"Plusieurs pistes dans {folder}. Choisis le fichier avec --soundtrack.")
+        if tracks:
+            return tracks[0].resolve()
+    raise FileNotFoundError("Place la piste dans videos/soundtrack ou indique son chemin avec --soundtrack.")
+
+
 def export(args, ffmpeg):
     destination = args.output.resolve()
     if destination.exists() and not args.overwrite:
         raise FileExistsError(f"{destination} existe déjà. Choisis un autre chemin ou ajoute --overwrite.")
+    soundtrack = soundtrack_for(args)
     destination.parent.mkdir(parents=True, exist_ok=True)
     width, height = args.size
     ramp_frames = round(args.ramp_seconds * args.fps)
@@ -227,11 +249,16 @@ def export(args, ffmpeg):
             ffmpeg, "-hide_banner", "-loglevel", "error",
             "-f", "rawvideo", "-pixel_format", "rgb24", "-video_size", f"{width}x{height}",
             "-framerate", str(args.fps), "-i", "pipe:0",
+        ]
+        if soundtrack is not None:
+            command.extend(("-ss", SOUNDTRACK_START, "-i", str(soundtrack), "-map", "0:v:0", "-map", "1:a:0",
+                            "-c:a", "aac", "-b:a", "192k", "-af", "apad", "-shortest"))
+        command.extend((
             "-vf", "vflip,scale=out_color_matrix=bt709:out_range=tv",
             "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-pix_fmt", "yuv420p",
             "-color_primaries", "bt709", "-colorspace", "bt709", "-color_trc", "iec61966-2-1",
             "-color_range", "tv", "-movflags", "+faststart", str(encoded),
-        ]
+        ))
         with subprocess.Popen(command, stdin=subprocess.PIPE) as encoder:
             try:
                 if args.reveal is None:
@@ -269,6 +296,9 @@ def main():
     parser.add_argument("--reveal", type=float, nargs=len(LABELS), metavar="SCORE",
                         help=f"Exporter la révélation de {REVEAL_DURATION:g} s, dont {REVEAL_HOLD:g} s de cercle, "
                              "à partir de six valeurs sur 10 dans l’ordre des dimensions.")
+    audio = parser.add_mutually_exclusive_group()
+    audio.add_argument("--soundtrack", type=Path, help="Utiliser cette piste pour --reveal à partir de 14 min 40 s.")
+    audio.add_argument("--silent", action="store_true", help="Exporter une révélation silencieuse.")
     parser.add_argument("--overwrite", action="store_true", help="Remplacer le fichier MP4 de destination.")
     args = parser.parse_args()
     if args.output.suffix.lower() != ".mp4":
@@ -279,6 +309,8 @@ def main():
         parser.error("La durée d’un trajet doit être comprise entre 0,25 et 60 secondes.")
     if args.reveal is not None and any(not 0 <= score <= 10 for score in args.reveal):
         parser.error("Les six scores de révélation doivent être compris entre 0 et 10.")
+    if args.reveal is None and args.soundtrack is not None:
+        parser.error("--soundtrack nécessite --reveal. Les exemples par dimension sont silencieux.")
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
         parser.error("Installe FFmpeg et rends la commande ffmpeg accessible dans le PATH.")
@@ -286,7 +318,7 @@ def main():
         destination = export(args, ffmpeg)
     except KeyboardInterrupt:
         parser.exit(130, "Export interrompu.\n")
-    except (OSError, RuntimeError, window.WindowException, gl.GLException) as error:
+    except (OSError, RuntimeError, ValueError, window.WindowException, gl.GLException) as error:
         parser.exit(1, f"Export MindSight : {error}\n")
     print(f"Vidéo exportée dans {destination}")
 
