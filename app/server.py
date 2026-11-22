@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 import wave
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -356,10 +357,16 @@ class ConversationHandler(BaseHTTPRequestHandler):
         self.portrait_drop = portrait_drop
         super().__init__(*args)
 
-    def send_content(self, status, content, media_type):
+    def log_request(self, code="-", size="-"):
+        if not self.path.endswith("/portrait-frame"):
+            super().log_request(code, size)
+
+    def send_content(self, status, content, media_type, *, headers=()):
         self.send_response(status)
         self.send_header("Content-Type", media_type)
         self.send_header("Content-Length", str(len(content)))
+        for name, value in headers:
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(content)
 
@@ -387,6 +394,9 @@ class ConversationHandler(BaseHTTPRequestHandler):
                 self.send_json(404, {"detail": "Aperçu du portrait indisponible."})
             else:
                 self.send_content(200, preview, "image/png")
+        elif self.path.startswith(f"{SESSION_PATH}/") and self.path.endswith("/portrait-frame"):
+            session_id = self.path.removeprefix(f"{SESSION_PATH}/").removesuffix("/portrait-frame")
+            self.send_portrait_frame(session_id)
         elif self.path.startswith(f"{SESSION_PATH}/") and self.path.endswith("/scores"):
             session_id = self.path.removeprefix(f"{SESSION_PATH}/").removesuffix("/scores")
             try:
@@ -408,6 +418,31 @@ class ConversationHandler(BaseHTTPRequestHandler):
             self.send_content(200, (DIRECTORY / "static" / filename).read_bytes(), f"{media_type}; charset=utf-8")
         else:
             self.send_json(404, {"detail": "Page introuvable."})
+
+    def send_portrait_frame(self, session_id):
+        if self.portrait_preview is None or not re.fullmatch(r"[0-9a-f]{32}", session_id):
+            self.send_json(404, {"detail": "Portrait indisponible."})
+            return
+        for suffix in (".final.png", ".png"):
+            try:
+                with self.portrait_preview.with_name(f"{session_id}{suffix}").open("rb") as image:
+                    tag = f'"{os.fstat(image.fileno()).st_mtime_ns}-{suffix}"'
+                    if self.headers.get("If-None-Match") == tag:
+                        self.send_response(304)
+                        self.send_header("ETag", tag)
+                        self.end_headers()
+                        return
+                    frame = image.read()
+            except (FileNotFoundError, PermissionError):
+                continue
+            self.send_content(200, frame, "image/png", headers=(
+                ("Cache-Control", "no-store"), ("ETag", tag),
+                ("X-Portrait-Finished", str(suffix == ".final.png").lower()),
+            ))
+            return
+        self.send_response(204)
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
 
     def do_POST(self):
         if self.path == TRANSCRIPTION_PATH:

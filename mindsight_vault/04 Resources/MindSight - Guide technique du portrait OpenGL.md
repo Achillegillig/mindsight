@@ -1,6 +1,6 @@
 # MindSight — Guide technique du portrait OpenGL
 
-Le lecteur natif ouvre une fenêtre OpenGL indépendante. En direct, il reçoit les dimensions de la dernière conversation MindSight via le pont OSC existant. Le mode démo et le mode manuel permettent d’examiner le rendu seul. [Lecteur OpenGL](../../visualization/mindsight_opengl.py) · [Version de référence du 22 novembre 2026](../../visualization/mindsight_opengl_reference_2026_11_22.py)
+Le chat affiche le portrait OpenGL dans la page dès que les scores sont prêts. Le moteur de rendu reçoit les dimensions de la conversation via le pont OSC. Les modes démo et manuel permettent d’examiner le rendu dans une fenêtre indépendante. [Lecteur OpenGL](../../visualization/mindsight_opengl.py) · [Version de référence du 22 novembre 2026](../../visualization/mindsight_opengl_reference_2026_11_22.py)
 
 ## Installation et démarrage
 
@@ -18,7 +18,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m visualization.mindsight_opengl --demo
 ```
 
-**Chat et visualisation en direct.** Renseigne `OPENROUTER_API_KEY` dans `.env` pour activer l’analyse de la conversation. Installe FFmpeg avec l’encodeur `libx264` et rends `ffmpeg` accessible dans le `PATH` pour l’export vidéo. La commande suivante lance le serveur du chat et ouvre le lecteur OpenGL.
+**Chat et visualisation en direct.** Renseigne `OPENROUTER_API_KEY` dans `.env` pour activer l’analyse de la conversation. Installe FFmpeg avec l’encodeur `libx264` et rends `ffmpeg` accessible dans le `PATH` pour l’export vidéo. La commande suivante lance le serveur du chat avec le portrait intégré.
 
 ```powershell
 .\.venv\Scripts\python.exe -m app.main --opengl
@@ -26,7 +26,7 @@ python -m venv .venv
 
 Ouvre l’adresse affichée par `app.main`, généralement `http://127.0.0.1:8000`, puis démarre une conversation. Si le port OSC `9000` est occupé, ajoute `--osc-port 9001`. Avec `--simulate`, le chat utilise des relances préparées et les scores restent à zéro.
 
-Dès que les scores finaux sont prêts, le cercle se transforme et le lecteur lance un export par session dans `videos/`. Le MP4 de 80 secondes montre le cercle et les six curseurs visuels pendant 30 secondes, puis la transformation et l’animation pendant 50 secondes. [Script d’export](../../visualization/export_mindsight_video.py)
+Dès que les scores finaux sont prêts, la page se place sur le portrait. Le cercle apparaît sur fond blanc et les six traits s’affichent progressivement. En direct, le drop commence 2,5 secondes après la fin de l’annonce vocale. Les traits disparaissent au moment où le cercle éclate. Le lecteur exporte également un MP4 par session dans `videos/`. Le MP4 dure 80 secondes et cale le drop à 30 secondes sur la piste musicale. [Script d’export](../../visualization/export_mindsight_video.py)
 
 Pour les vidéos de révélation, place la piste dans `videos/soundtrack/`. Le dossier `videos/soundrack/` du montage local est également reconnu. L’export cale le début de la vidéo à **14 min 40 s** dans le morceau. En export manuel d’une révélation, `--soundtrack` sélectionne un fichier et `--silent` permet un rendu silencieux. L’export des exemples par dimension avec curseur est silencieux.
 

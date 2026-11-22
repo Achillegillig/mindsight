@@ -112,6 +112,24 @@ button:disabled { opacity: .6; }
   #portrait-preview img { animation: none; }
 }
 .with-scores #portrait-preview { display: none; }
+#portrait-reveal {
+  position: relative;
+  margin-top: 1.5rem;
+  border-radius: .85rem;
+  overflow: hidden;
+  background: #fff;
+  scroll-margin-top: 1rem;
+}
+#portrait-reveal canvas { display: block; width: 100%; height: auto; }
+#portrait-reveal p:not(:empty) {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 1rem;
+  text-align: center;
+}
 @media (min-width: 58rem) {
   main.with-portrait { width: min(64rem, 100%); }
   .with-portrait .session-layout {

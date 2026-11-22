@@ -18,21 +18,26 @@ import re
 import socket
 import subprocess
 import sys
+from time import monotonic
 
 import pyglet
 
 pyglet.options["shadow_window"] = False
-from pyglet import gl  # noqa: E402
+from pyglet import gl, graphics, shapes, text  # noqa: E402
 from pyglet.window import key  # noqa: E402
 from pythonosc.dispatcher import Dispatcher  # noqa: E402
 
 if __package__:
     from .mcp_to_osc import DEFAULT_OSC_PORT, PORTRAIT_MAPPING_PATH, load_mapping
-    from .portrait_soundtrack import REVEAL_HOLD, SOUNDTRACK_DROP, SOUNDTRACK_START, VIDEO_DIRECTORY, find_soundtrack
+    from .portrait_soundtrack import (
+        REVEAL_HOLD, REVEAL_TAIL, SOUNDTRACK_DROP, SOUNDTRACK_START, VIDEO_DIRECTORY, find_soundtrack,
+    )
     from .touchdesigner_osc_callbacks import ALIASES, TRAITS as OSC_PROFILE
 else:
     from mcp_to_osc import DEFAULT_OSC_PORT, PORTRAIT_MAPPING_PATH, load_mapping
-    from portrait_soundtrack import REVEAL_HOLD, SOUNDTRACK_DROP, SOUNDTRACK_START, VIDEO_DIRECTORY, find_soundtrack
+    from portrait_soundtrack import (
+        REVEAL_HOLD, REVEAL_TAIL, SOUNDTRACK_DROP, SOUNDTRACK_START, VIDEO_DIRECTORY, find_soundtrack,
+    )
     from touchdesigner_osc_callbacks import ALIASES, TRAITS as OSC_PROFILE
 
 
@@ -45,8 +50,11 @@ SAMPLES = 96
 DEFAULT_STRANDS = 256
 STEP = 1 / 60
 REVEAL_MORPH = 3.2
+REVEAL_BACKGROUND = (1.0, 1.0, 1.0)
 VOICE_DROP_LEAD = 6.0
-VOICE_DROP_TIMEOUT = 15.0
+VOICE_DROP_DELAY = 2.5
+VOICE_DROP_TIMEOUT = 65.0  # Le navigateur attend jusqu’à 60 s pour la lecture.
+CHAT_FRAME_INTERVAL = 1 / 24
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEMO = (
     ("Repos", IDLE),
@@ -76,7 +84,7 @@ class OscInput:
         self.values = list(IDLE)
         self.session_id = None
         self.reveal_levels = None
-        self.drop_session = None
+        self.drop_signal = None
         self.dispatcher = Dispatcher(strict_timing=False)
         self.scales = {}
         self.indices = {name: i for i, name in enumerate(TRAITS)}
@@ -148,7 +156,8 @@ class OscInput:
 
     def arm_drop(self, address, session_id=None, *extra):
         if not extra and isinstance(session_id, str) and re.fullmatch(r"[0-9a-f]{32}", session_id):
-            self.drop_session = session_id
+            if self.drop_signal is None or self.drop_signal[0] != session_id:
+                self.drop_signal = session_id, monotonic() + VOICE_DROP_DELAY
 
     def poll(self):
         for _ in range(128):
@@ -821,8 +830,51 @@ def create_window(width, height, *, visible=True, vsync=True):
                                 config=config, visible=visible, vsync=vsync)
 
 
+class ProfileGauges:
+    def __init__(self, width, height, levels):
+        self.size = (width, height)
+        scale = min(width / 1280, height / 720)
+        start = 48 * scale
+        track_width = 208 * scale
+        spacing = 52 * scale
+        top = height / 2 + (len(LABELS) - 1) * spacing / 2
+        font = ["Segoe UI", "DejaVu Sans", "Arial"]
+        self.batch = graphics.Batch()
+        rail, accent, labels = (graphics.Group(order=i) for i in range(3))
+        self.rows = []
+        for index, (name, level) in enumerate(zip(LABELS, levels)):
+            title_y = top - index * spacing
+            track_y = title_y - 18 * scale
+            value = f"{10 * level:.1f}".removesuffix(".0").replace(".", ",")
+            self.rows.append((
+                text.Label(name, x=start, y=title_y, anchor_y="center", font_name=font,
+                           font_size=17 * scale, weight="bold", dpi=96, color=(22, 39, 45, 255),
+                           batch=self.batch, group=labels),
+                text.Label(f"{value} / 10", x=start + track_width, y=title_y, anchor_x="right",
+                           anchor_y="center", font_name=font, font_size=13 * scale, dpi=96,
+                           color=(59, 84, 91, 255), batch=self.batch, group=labels),
+                shapes.Rectangle(start, track_y, track_width, 3 * scale,
+                                 color=(219, 231, 231), batch=self.batch, group=rail),
+                shapes.Rectangle(start, track_y, track_width * level, 3 * scale,
+                                 color=(46, 115, 121), batch=self.batch, group=accent),
+            ))
+
+    def draw(self, elapsed):
+        for index, row in enumerate(self.rows):
+            opacity = round(255 * min(1.0, max(0.0, (elapsed - index * 0.22) / 0.32)))
+            for item in row:
+                if item.opacity != opacity:
+                    item.opacity = opacity
+        self.batch.draw()
+
+    def close(self):
+        for row in self.rows:
+            for item in row:
+                item.delete()
+
+
 class Portrait:
-    def __init__(self, window, renderer, port, *, mode, fixed, hide_while_waiting=False, voice_drop=False):
+    def __init__(self, window, renderer, port, *, mode, fixed, preview_image=None, voice_drop=False):
         self.window = window
         self.renderer = renderer
         self.port = port
@@ -830,9 +882,12 @@ class Portrait:
         self.mode = mode
         self.live_mode = "reveal" if mode == "reveal" else "live"
         self.reveal_session = self.reveal_profile = None
-        self.hide_while_waiting = hide_while_waiting
+        self.preview_image = preview_image
+        self.next_chat_frame = 0.0
+        self.chat_frame_done = False
         self.voice_drop = voice_drop
         self.music = None
+        self.gauges = None
         self.reveal_elapsed = None
         self.exported_sessions = set()
         self.exports = []
@@ -846,7 +901,19 @@ class Portrait:
         window.push_handlers(on_draw=self.on_draw, on_key_press=self.on_key_press)
 
     def on_draw(self):
-        self.renderer.draw(*self.window.get_framebuffer_size())
+        self.renderer.draw(*self.window.get_framebuffer_size(),
+                           background=REVEAL_BACKGROUND if self.mode == "reveal" else None)
+        if self.mode == "reveal" and self.reveal_profile is not None and self.reveal_elapsed is None:
+            size = self.window.get_size()
+            if self.gauges is None or self.gauges.size != size:
+                self.clear_gauges()
+                self.gauges = ProfileGauges(*size, self.reveal_profile)
+            self.gauges.draw(self.mode_seconds)
+
+    def clear_gauges(self):
+        if self.gauges is not None:
+            self.gauges.close()
+            self.gauges = None
 
     def stop_music(self):
         if self.music is not None:
@@ -854,9 +921,17 @@ class Portrait:
             self.music = None
 
     def present_reveal(self):
-        self.window.set_visible(True)
-        self.window.set_fullscreen(True)
-        self.window.activate()
+        if self.preview_image is None:
+            self.window.set_visible(True)
+            self.window.set_fullscreen(True)
+            self.window.activate()
+            if sys.platform == "win32":
+                from pyglet.libs.win32 import _user32, constants
+
+                flags = constants.SWP_NOMOVE | constants.SWP_NOSIZE | constants.SWP_NOACTIVATE
+                hwnd = self.window._hwnd
+                _user32.SetWindowPos(hwnd, constants.HWND_TOPMOST, 0, 0, 0, 0, flags)
+                _user32.SetWindowPos(hwnd, constants.HWND_NOTOPMOST, 0, 0, 0, 0, flags)
         player = None
         try:
             soundtrack = pyglet.media.load(str(find_soundtrack()))
@@ -888,7 +963,10 @@ class Portrait:
         if self.reveal_elapsed is None:
             music = self.music if self.music is not None and self.music.source is not None else None
             if self.voice_drop:
-                if self.osc.drop_session == self.reveal_session or self.mode_seconds >= VOICE_DROP_TIMEOUT:
+                drop_session, drop_at = self.osc.drop_signal or (None, 0.0)
+                drop_ready = (monotonic() >= drop_at if drop_session == self.reveal_session
+                              else self.mode_seconds >= VOICE_DROP_TIMEOUT)
+                if drop_ready:
                     if music is not None:
                         self.seek_reveal_music(SOUNDTRACK_DROP, drop=True)
                     self.reveal_elapsed = 0.0
@@ -926,19 +1004,26 @@ class Portrait:
     def sync_reveal(self):
         session, profile = self.osc.session_id, self.osc.reveal_levels
         if self.mode == "reveal" and (session, profile) != (self.reveal_session, self.reveal_profile):
+            if self.preview_image is not None and self.reveal_profile is not None:
+                self.export_reveal(self.reveal_session, self.reveal_profile)
             self.stop_music()
+            self.clear_gauges()
             self.renderer.reset_circle()
             self.reveal_session, self.reveal_profile = session, profile
             self.mode_seconds = 0.0
             self.reveal_elapsed = None
+            self.next_chat_frame = 0.0
+            self.chat_frame_done = False
             if profile is not None:
                 self.present_reveal()
-            elif self.hide_while_waiting:
-                if self.window.fullscreen:
-                    self.window.set_fullscreen(False)
-                self.window.set_visible(False)
         self.exports = [process for process in self.exports if process.poll() is None]
-        if profile is None or session in self.exported_sessions:
+        # L’export utilise le même GPU que le direct. Laisser le drop se jouer en premier.
+        if profile is not None and (self.preview_image is None or
+                                    (self.reveal_elapsed is not None and self.reveal_elapsed >= REVEAL_MORPH)):
+            self.export_reveal(session, profile)
+
+    def export_reveal(self, session, profile):
+        if session in self.exported_sessions:
             return
         self.exported_sessions.add(session)
         destination = VIDEO_DIRECTORY / f"mindsight-portrait-{session}.mp4"
@@ -956,6 +1041,34 @@ class Portrait:
         else:
             self.exports.append(process)
 
+    def publish_chat_frame(self):
+        if self.mode_seconds < self.next_chat_frame:
+            return
+        self.next_chat_frame = self.mode_seconds + CHAT_FRAME_INTERVAL
+        final = self.reveal_elapsed is not None and self.reveal_elapsed >= REVEAL_TAIL
+        suffix = ".final.png" if final else ".png"
+        path = self.preview_image.with_name(f"{self.reveal_session}{suffix}")
+        pending = path.with_suffix(".tmp.png")
+        self.on_draw()
+        gl.glReadBuffer(gl.GL_BACK)
+        if sys.platform == "win32":
+            # WIC encode en BGRA. Lire ce format évite de réordonner les pixels en Python.
+            width, height = self.window.get_framebuffer_size()
+            pixels = (gl.GLubyte * (width * height * 4))()
+            gl.glReadPixels(0, 0, width, height, gl.GL_BGRA, gl.GL_UNSIGNED_BYTE, pixels)
+            image = pyglet.image.ImageData(width, height, "BGRA", pixels)
+        else:
+            image = pyglet.image.get_buffer_manager().get_color_buffer()
+        image.save(str(pending))
+        try:
+            pending.replace(path)
+        except PermissionError:
+            # Une réponse HTTP peut encore lire l’image précédente sous Windows.
+            return
+        if final:
+            self.chat_frame_done = True
+            self.stop_music()
+
     def update(self, dt):
         if self.osc is not None:
             self.osc.poll()
@@ -970,9 +1083,11 @@ class Portrait:
             self.caption = caption
         if not self.paused:
             if self.mode == "reveal":
-                if self.reveal_profile is not None:
+                if self.reveal_profile is not None and not self.chat_frame_done:
                     self.advance_portrait_reveal(dt, target)
-                elif not self.hide_while_waiting:
+                    if self.preview_image is not None:
+                        self.publish_chat_frame()
+                elif self.reveal_profile is None and self.preview_image is None:
                     self.renderer.advance(dt, IDLE)
             else:
                 self.renderer.flow = 1.0
@@ -1017,6 +1132,7 @@ class Portrait:
 
     def close(self):
         self.stop_music()
+        self.clear_gauges()
         if self.osc is not None:
             self.osc.close()
 
@@ -1054,7 +1170,8 @@ def main():
     mode = "demo" if args.demo else "manual" if args.trait else "reveal" if args.session_reveal else "live"
     window = renderer = portrait = None
     try:
-        window = create_window(1360, 820, visible=args.preview_image is None)
+        size = (960, 540) if args.preview_image is not None else (1360, 820)
+        window = create_window(*size, visible=args.preview_image is None)
         renderer = Renderer(args.strands, levels, flow=0.0 if args.session_reveal else 1.0)
         if args.preview_image is not None:
             renderer.draw(*window.get_framebuffer_size(), background=(240 / 255, 238 / 255, 232 / 255))
@@ -1064,11 +1181,15 @@ def main():
             preview.replace(args.preview_image)
         portrait = Portrait(
             window, renderer, args.osc_port, mode=mode, fixed=levels,
-            hide_while_waiting=args.preview_image is not None,
+            preview_image=args.preview_image,
             voice_drop=args.voice_drop,
         )
-        pyglet.clock.schedule(portrait.update)
-        pyglet.app.run()
+        if args.preview_image is not None:
+            pyglet.clock.schedule_interval(portrait.update, 1 / 60)
+            pyglet.app.run(interval=None)
+        else:
+            pyglet.clock.schedule(portrait.update)
+            pyglet.app.run()
     except (OSError, RuntimeError, pyglet.window.WindowException, gl.GLException) as error:
         parser.exit(1, f"MindSight OpenGL : {error}\n")
     except KeyboardInterrupt:

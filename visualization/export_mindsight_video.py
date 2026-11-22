@@ -11,18 +11,22 @@ import tempfile
 from time import sleep
 
 if __package__:
-    from .mindsight_opengl import DEFAULT_STRANDS, IDLE, LABELS, Renderer, create_window, gl
-    from .portrait_soundtrack import REVEAL_HOLD, SOUNDTRACK_START, find_soundtrack
+    from .mindsight_opengl import (
+        DEFAULT_STRANDS, IDLE, LABELS, REVEAL_BACKGROUND, ProfileGauges, Renderer, create_window, gl,
+    )
+    from .portrait_soundtrack import REVEAL_HOLD, REVEAL_TAIL, SOUNDTRACK_START, find_soundtrack
 else:
-    from mindsight_opengl import DEFAULT_STRANDS, IDLE, LABELS, Renderer, create_window, gl
-    from portrait_soundtrack import REVEAL_HOLD, SOUNDTRACK_START, find_soundtrack
+    from mindsight_opengl import (
+        DEFAULT_STRANDS, IDLE, LABELS, REVEAL_BACKGROUND, ProfileGauges, Renderer, create_window, gl,
+    )
+    from portrait_soundtrack import REVEAL_HOLD, REVEAL_TAIL, SOUNDTRACK_START, find_soundtrack
 
 from pyglet import graphics, shapes, text, window
 from pyglet.math import Mat4
 
 
 TURNS = (0.0, 1.0, 0.0, 1.0, 0.0)
-REVEAL_DURATION = 80.0
+REVEAL_DURATION = REVEAL_HOLD + REVEAL_TAIL
 
 
 def level_at_frame(frame, ramp_frames, hold_frames):
@@ -87,47 +91,6 @@ class Gauge:
             item.delete()
 
 
-class ProfileGauges:
-    def __init__(self, width, height, levels):
-        scale = min(width / 1280, height / 720)
-        left = 32 * scale
-        top = height - 32 * scale
-        panel_width = 264 * scale
-        panel_height = 352 * scale
-        self.batch = graphics.Batch()
-        panel, rail, accent, labels = (graphics.Group(order=i) for i in range(4))
-        self.items = [shapes.RoundedRectangle(
-            left, top - panel_height, panel_width, panel_height, radius=13 * scale,
-            color=(16, 28, 35, 245), batch=self.batch, group=panel,
-        )]
-        start = left + 20 * scale
-        track_width = panel_width - 40 * scale
-        font = ["Segoe UI", "DejaVu Sans", "Arial"]
-        for index, (name, level) in enumerate(zip(LABELS, levels)):
-            title_y = top - (34 + 54 * index) * scale
-            track_y = title_y - 17 * scale
-            fill_width = track_width * level
-            self.items.extend((
-                text.Label(name, x=start, y=title_y, anchor_y="center", font_name=font,
-                           font_size=13 * scale, weight="bold", dpi=96, color=(250, 249, 244, 255),
-                           batch=self.batch, group=labels),
-                text.Label(f"{level * 10:g} / 10".replace(".", ","),
-                           x=start + track_width, y=title_y, anchor_x="right", anchor_y="center",
-                           font_name=font, font_size=11 * scale, dpi=96, color=(250, 203, 127, 255),
-                           batch=self.batch, group=labels),
-                shapes.Rectangle(start, track_y, track_width, 4 * scale,
-                                 color=(80, 99, 105), batch=self.batch, group=rail),
-                shapes.Rectangle(start, track_y, fill_width, 4 * scale,
-                                 color=(250, 203, 127), batch=self.batch, group=accent),
-                shapes.Circle(start + fill_width, track_y + 2 * scale, 4.5 * scale,
-                              color=(250, 203, 127), batch=self.batch, group=labels),
-            ))
-
-    def close(self):
-        for item in self.items:
-            item.delete()
-
-
 @contextmanager
 def capture_frames(video, size):
     width, height = size
@@ -186,9 +149,9 @@ def render_reveal(video, size, fps, profile):
                 for frame in range(round(REVEAL_DURATION * fps)):
                     elapsed = frame / fps
                     renderer.advance_reveal(1 / fps, elapsed - REVEAL_HOLD, profile)
-                    renderer.draw(*size)
+                    renderer.draw(*size, background=REVEAL_BACKGROUND)
                     if elapsed < REVEAL_HOLD:
-                        gauges.batch.draw()
+                        gauges.draw(elapsed)
                     write_frame()
             finally:
                 renderer.close()

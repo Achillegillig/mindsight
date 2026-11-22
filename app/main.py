@@ -78,14 +78,35 @@ def create_server(handler, port=8000):
         return LocalHTTPServer(("127.0.0.1", 0), handler)
 
 
-def open_firefox(url):
+def browser_executables():
+    if sys.platform != "win32":
+        yield from ("firefox", "google-chrome", "google-chrome-stable", "chrome")
+        return
+
+    for executable, install_dir in (
+        ("firefox.exe", Path("Mozilla Firefox")),
+        ("chrome.exe", Path("Google", "Chrome", "Application")),
+    ):
+        yield executable
+        for variable in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"):
+            root = os.environ.get(variable)
+            if root:
+                path = Path(root) / install_dir / executable
+                if path.is_file():
+                    yield str(path)
+
+
+def open_browser(url):
     environment = os.environ.copy()
     environment.pop("OPENROUTER_API_KEY", None)
     environment.pop("AZURE_SPEECH_KEY", None)
-    try:
-        subprocess.Popen(["firefox", url], env=environment)
-    except OSError:
-        print(f"Firefox n’a pas pu être lancé. Ouvre {url} dans ton navigateur.", flush=True)
+    for executable in browser_executables():
+        try:
+            subprocess.Popen([executable, url], env=environment)
+        except OSError:
+            continue
+        return
+    print(f"Ouvre {url} dans ton navigateur.", flush=True)
 
 
 if __name__ == "__main__":
@@ -93,12 +114,13 @@ if __name__ == "__main__":
     parser.add_argument("--export", type=Path, help="Générer une démo HTML ouvrable sans serveur.")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="Identifiant du modèle OpenRouter.")
     parser.add_argument("--simulate", action="store_true", help="Utiliser les relances préparées.")
-    parser.add_argument("--open", action="store_true", help="Ouvrir Firefox dès que le serveur écoute.")
+    parser.add_argument("--open", action="store_true",
+                        help="Ouvrir Firefox ou Chrome dès que le serveur écoute.")
     parser.add_argument("--auto", action="store_true", help="Ouvrir le chat en mode vocal automatique.")
     portraits = parser.add_mutually_exclusive_group()
     portraits.add_argument("--osc", action="store_true", help="Relier la dernière session ouverte au portrait TouchDesigner.")
     portraits.add_argument("--opengl", "--openg", action="store_true",
-                           help="Ouvrir le portrait OpenGL et exporter chaque révélation.")
+                           help="Afficher le portrait OpenGL dans le chat et exporter chaque révélation.")
     parser.add_argument("--osc-port", type=int, default=9000, help="Port UDP du portrait.")
     parser.add_argument("--record", action="store_true", help="Enregistrer les tours dans test-results.jsonl.")
     parser.add_argument("--reasoning", action="store_true", help="Afficher les indices et les décisions d’attribution dans le chat.")
@@ -200,7 +222,7 @@ if __name__ == "__main__":
                     if args.record:
                         print(f"Journal de test — {RECORD_PATH}", flush=True)
                     if args.open or args.auto:
-                        open_firefox(url)
+                        open_browser(url)
                     server.serve_forever()
             except KeyboardInterrupt:
                 pass

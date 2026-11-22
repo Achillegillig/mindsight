@@ -28,7 +28,8 @@ python3 -m pip install -r requirements.txt
 python3 -m app.main --open
 ```
 
-Garder le terminal ouvert. MindSight ouvre Firefox sur l’adresse affichée.
+Garder le terminal ouvert. MindSight ouvre l’adresse affichée dans Firefox,
+ou dans Chrome si Firefox est indisponible.
 Si le port 8000 est occupé, MindSight utilise un port libre.
 La clé reste côté serveur. Le serveur envoie le préprompt et l’historique
 à OpenRouter à chaque tour. Pour la démo, utiliser des récits fictifs.

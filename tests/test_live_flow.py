@@ -106,6 +106,36 @@ class FixtureOpenRouter(BaseHTTPRequestHandler):
 
 
 class LiveFlowTests(unittest.TestCase):
+    def test_portrait_frames_are_session_scoped_and_mark_the_last_image(self):
+        with TemporaryDirectory() as directory, ConversationService(load_catalog()) as service:
+            preview = Path(directory) / "circle.png"
+            handler = partial(ConversationHandler, service=service, portrait_preview=preview)
+            with serving(handler) as chat_url:
+                session_id = service.create_session()
+                other_id = service.create_session()
+                route = f"{chat_url}/api/conversation/session/{session_id}/portrait-frame"
+                with urlopen(route, timeout=5) as response:
+                    self.assertEqual(response.status, 204)
+
+                preview.with_name(f"{session_id}.png").write_bytes(b"live frame")
+                with urlopen(route, timeout=5) as response:
+                    self.assertEqual(response.read(), b"live frame")
+                    self.assertEqual(response.headers["X-Portrait-Finished"], "false")
+                    tag = response.headers["ETag"]
+                with self.assertRaises(HTTPError) as unchanged:
+                    urlopen(Request(route, headers={"If-None-Match": tag}), timeout=5)
+                self.assertEqual(unchanged.exception.code, 304)
+                unchanged.exception.close()
+
+                other_route = route.replace(session_id, other_id)
+                with urlopen(other_route, timeout=5) as response:
+                    self.assertEqual(response.status, 204)
+
+                preview.with_name(f"{session_id}.final.png").write_bytes(b"last frame")
+                with urlopen(Request(route, headers={"If-None-Match": tag}), timeout=5) as response:
+                    self.assertEqual(response.read(), b"last frame")
+                    self.assertEqual(response.headers["X-Portrait-Finished"], "true")
+
     def test_portrait_mapping_sends_scaled_support_and_idle_as_osc_floats(self):
         channels = load_mapping(MAPPING_PATH.with_name("mapping_traits.yaml"))
         dimensions = [dimension["id"] for dimension in load_catalog().dimensions]

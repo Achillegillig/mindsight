@@ -7,6 +7,7 @@ VIDEO_DIRECTORY = Path(__file__).resolve().parents[1] / "videos"
 SOUNDTRACK_START = 14 * 60 + 40
 SOUNDTRACK_DROP = 15 * 60 + 10
 REVEAL_HOLD = SOUNDTRACK_DROP - SOUNDTRACK_START
+REVEAL_TAIL = 50.0
 AUDIO_EXTENSIONS = {".aac", ".flac", ".m4a", ".mp3", ".ogg", ".opus", ".wav"}
 
 

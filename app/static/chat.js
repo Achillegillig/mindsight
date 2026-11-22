@@ -20,6 +20,7 @@ const scoresPanel = document.querySelector("#trait-scores");
 const scoresStatus = document.querySelector("#trait-scores-status");
 const scoresList = document.querySelector("#trait-scores-list");
 const scoresNote = document.querySelector("#trait-scores-note");
+const portraitReveal = document.querySelector("#portrait-reveal");
 const questionVoice = createQuestionVoice();
 let history = [];
 let finished = false;
@@ -30,6 +31,7 @@ let scoresRun = 0;
 let busy = false;
 let autoRun;
 let portraitVoiceDrop = false;
+let portraitRevealRequest;
 let openingSession = false;
 let turnRequest;
 let finalAnnouncement;
@@ -91,6 +93,47 @@ async function sendPortraitDrop(id) {
     body: JSON.stringify({ session_id: id }),
   });
   if (!response.ok) throw new Error("Signal du portrait indisponible.");
+}
+
+async function showPortraitReveal(id) {
+  portraitRevealRequest?.abort();
+  const request = new AbortController();
+  portraitRevealRequest = request;
+  const canvas = portraitReveal.querySelector("canvas");
+  const context = canvas.getContext("2d");
+  const message = portraitReveal.querySelector("p");
+  const url = `/api/conversation/session/${encodeURIComponent(id)}/portrait-frame`;
+  const headers = {};
+  let lastFrame = performance.now();
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  message.textContent = "Préparation du portrait…";
+  portraitReveal.hidden = false;
+  portraitReveal.scrollIntoView({ block: "start" });
+
+  while (!request.signal.aborted) {
+    try {
+      const response = await fetch(url, { cache: "no-store", signal: request.signal, headers });
+      if (response.status === 200) {
+        const frame = await createImageBitmap(await response.blob());
+        if (!request.signal.aborted) {
+          context.drawImage(frame, 0, 0, canvas.width, canvas.height);
+          headers["If-None-Match"] = response.headers.get("ETag");
+          message.textContent = "";
+          lastFrame = performance.now();
+        }
+        frame.close();
+        if (response.headers.get("X-Portrait-Finished") === "true") return;
+      }
+    } catch {
+      // Le rendu peut encore être en cours de démarrage.
+    }
+    if (request.signal.aborted) return;
+    if (performance.now() - lastFrame > 8000) {
+      message.textContent = "Le portrait est indisponible.";
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, message.textContent ? 200 : 32));
+  }
 }
 
 function renderReasoningTurn(turn, labels) {
@@ -396,6 +439,7 @@ async function concludeConversation(scores) {
     ? "Voici à quoi ressemble votre profil psychologique sous forme visuelle."
     : "La synthèse n’est pas disponible pour cette conversation.";
   finalAnnouncement = { message, sessionId: snapshot?.ready ? snapshot.session_id : undefined };
+  if (portraitVoiceDrop && finalAnnouncement.sessionId) void showPortraitReveal(finalAnnouncement.sessionId);
   await announceResult(finalAnnouncement);
 }
 
@@ -428,6 +472,8 @@ async function start() {
   status.textContent = "Ouverture d’une nouvelle conversation…";
   try {
     const { opening, session_id, reasoning: showReasoning } = await openSession();
+    portraitRevealRequest?.abort();
+    portraitReveal.hidden = true;
     sessionId = session_id;
     reasoningRun++;
     scoresRun++;
