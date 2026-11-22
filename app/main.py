@@ -13,6 +13,7 @@ from functools import partial
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from time import monotonic, sleep
 
 from .azure_speech import (
     DEFAULT_STYLE, DEFAULT_VOICE, MAI_TRANSCRIPTION_MODEL, mai_transcription_url,
@@ -113,6 +114,16 @@ def open_browser(url):
     print(f"Ouvre {url} dans ton navigateur.", flush=True)
 
 
+def wait_for_portrait_window(process, ready_path):
+    deadline = monotonic() + 15
+    while not ready_path.is_file():
+        if process.poll() is not None:
+            raise RuntimeError("Le lecteur OpenGL s’est arrêté pendant son démarrage.")
+        if monotonic() >= deadline:
+            raise RuntimeError("Le lecteur OpenGL n’a pas signalé que sa fenêtre était prête.")
+        sleep(0.05)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Lancer la conversation MindSight.")
     parser.add_argument("--export", type=Path, help="Générer une démo HTML ouvrable sans serveur.")
@@ -127,18 +138,22 @@ if __name__ == "__main__":
     portraits.add_argument("--osc", action="store_true", help="Relier la dernière session ouverte au portrait TouchDesigner.")
     portraits.add_argument("--opengl", "--openg", action="store_true",
                            help="Afficher le portrait OpenGL dans le chat et exporter chaque révélation.")
+    portraits.add_argument("--opengl-window", action="store_true",
+                           help="Ouvrir le portrait OpenGL en plein écran dans une fenêtre indépendante.")
     parser.add_argument("--osc-port", type=int, default=9000, help="Port UDP du portrait.")
     parser.add_argument("--record", action="store_true", help="Enregistrer les tours dans test-results.jsonl.")
     parser.add_argument("--reasoning", action="store_true", help="Afficher les indices et les décisions d’attribution dans le chat.")
     parser.add_argument("--port", type=int, default=8000, help="Port du chat local (0 pour un port libre).")
     parser.add_argument("--mcp-port", type=int, default=8001, help="Port MCP local (0 pour un port libre).")
     args = parser.parse_args()
+    use_opengl = args.opengl or args.opengl_window
     if args.auto and args.export:
         parser.error("--auto nécessite le serveur MindSight.")
-    if (args.osc or args.opengl) and not 1 <= args.osc_port <= 65535:
+    if (args.osc or use_opengl) and not 1 <= args.osc_port <= 65535:
         parser.error("--osc-port doit être compris entre 1 et 65535.")
-    if args.opengl and args.export:
-        parser.error("--opengl nécessite le serveur MindSight.")
+    if use_opengl and args.export:
+        option = "--opengl-window" if args.opengl_window else "--opengl"
+        parser.error(f"{option} nécessite le serveur MindSight.")
     if args.skip_interview and args.export:
         parser.error("--skip-interview nécessite le serveur MindSight.")
     if args.export:
@@ -198,27 +213,34 @@ if __name__ == "__main__":
                     follow = None
                     portrait_preview = None
                     portrait_drop = None
-                    if args.osc or args.opengl:
+                    if args.osc or use_opengl:
                         from visualization.mcp_to_osc import follow_portrait_sessions, stop_process
 
-                        if args.opengl:
+                        if use_opengl:
                             from visualization.mcp_to_osc import send_portrait_drop
 
                             portrait_drop = partial(send_portrait_drop, args.osc_port)
-                            preview_dir = stack.enter_context(TemporaryDirectory(prefix="mindsight-portrait-"))
-                            portrait_preview = Path(preview_dir) / "circle.png"
+                            portrait_dir = Path(stack.enter_context(TemporaryDirectory(prefix="mindsight-portrait-")))
                             environment = os.environ.copy()
                             environment.pop("OPENROUTER_API_KEY", None)
                             environment.pop("AZURE_SPEECH_KEY", None)
-                            portrait = subprocess.Popen([
+                            command = [
                                 sys.executable, "-X", "utf8", "-m", "visualization.mindsight_opengl",
                                 "--session-reveal", "--osc-port", str(args.osc_port),
-                                "--preview-image", str(portrait_preview),
-                                "--voice-drop",
-                            ], env=environment)
+                            ]
+                            if args.opengl_window:
+                                ready_path = portrait_dir / "window.ready"
+                                command.extend(("--window-ready-file", str(ready_path)))
+                            else:
+                                portrait_preview = portrait_dir / "circle.png"
+                                command.extend(("--preview-image", str(portrait_preview)))
+                            command.append("--voice-drop")
+                            portrait = subprocess.Popen(command, env=environment)
                             stack.callback(stop_process, portrait)
+                            if args.opengl_window:
+                                wait_for_portrait_window(portrait, ready_path)
                         follow = stack.enter_context(follow_portrait_sessions(
-                            mcp_url, args.osc_port, portrait_events=args.opengl,
+                            mcp_url, args.osc_port, portrait_events=use_opengl,
                         ))
                     handler = partial(
                         ConversationHandler, service=service, speech=speech,

@@ -40,6 +40,7 @@ let scoresRun = 0;
 let busy = false;
 let autoRun;
 let portraitVoiceDrop = false;
+let portraitInChat = false;
 let portraitRevealRequest;
 let openingSession = false;
 let turnRequest;
@@ -128,7 +129,6 @@ function updateFullscreenButton() {
 }
 
 function closePortraitReveal() {
-  portraitRevealRequest?.abort();
   if (document.fullscreenElement === portraitScreen) void document.exitFullscreen().catch(() => {});
   if (portraitDialog.open) portraitDialog.close();
   if (portraitScreen.parentElement === portraitDialog) portraitReveal.append(portraitScreen);
@@ -152,15 +152,19 @@ async function showPortraitReveal(id, onFirstFrame) {
   portraitActions.append(playResult);
   if (!portraitDialog.open) portraitDialog.showModal();
   updateFullscreenButton();
-  if (navigator.userActivation?.isActive) enterPortraitFullscreen();
 
   while (!request.signal.aborted) {
+    const started = performance.now();
     try {
       const response = await fetch(url, { cache: "no-store", signal: request.signal, headers });
       if (response.status === 200) {
         const frame = await createImageBitmap(await response.blob());
         if (!request.signal.aborted) {
-          context.drawImage(frame, 0, 0, canvas.width, canvas.height);
+          if (canvas.width !== frame.width || canvas.height !== frame.height) {
+            canvas.width = frame.width;
+            canvas.height = frame.height;
+          }
+          context.drawImage(frame, 0, 0);
           headers["If-None-Match"] = response.headers.get("ETag");
           if (message.textContent) onFirstFrame?.();
           message.textContent = "";
@@ -177,7 +181,9 @@ async function showPortraitReveal(id, onFirstFrame) {
       message.textContent = "Le portrait est indisponible.";
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, message.textContent ? 200 : 32));
+    const refreshInterval = message.textContent ? 200 : 32;
+    const delay = Math.max(0, refreshInterval - (performance.now() - started));
+    await new Promise((resolve) => setTimeout(resolve, delay));
   }
 }
 
@@ -530,7 +536,7 @@ async function concludeConversation(scores) {
   if (randomProfile) message = "Voici un profil de démonstration généré à partir de trois dimensions tirées au sort.";
   const announcement = { message, sessionId: snapshot?.ready ? snapshot.session_id : undefined, randomProfile };
   finalAnnouncement = announcement;
-  if (portraitVoiceDrop && announcement.sessionId) {
+  if (portraitInChat && portraitVoiceDrop && announcement.sessionId) {
     if (randomProfile) {
       await new Promise((resolve) => showPortraitReveal(announcement.sessionId, resolve).then(resolve, resolve));
     } else {
@@ -571,6 +577,7 @@ async function start() {
   let scores;
   try {
     const { opening, session_id, reasoning: showReasoning, skip_interview: skipInterview } = await openSession();
+    portraitRevealRequest?.abort();
     closePortraitReveal();
     portraitReveal.hidden = true;
     sessionId = session_id;
@@ -723,7 +730,12 @@ document.querySelector("#portrait-close").addEventListener("click", closePortrai
 portraitDialog.addEventListener("close", () => {
   if (!portraitDialog.open) closePortraitReveal();
 });
-document.addEventListener("fullscreenchange", updateFullscreenButton);
+document.addEventListener("fullscreenchange", (event) => {
+  updateFullscreenButton();
+  if (event.target === portraitScreen && !document.fullscreenElement && portraitDialog.open) {
+    closePortraitReveal();
+  }
+});
 
 async function restartFromLogo() {
   await start();
@@ -737,6 +749,7 @@ const modeReady = demo ? Promise.resolve() : fetch("/api/conversation/mode")
       questionVoice.setAzureVoice(azureSpeech);
       dictation.setAvailable(azureTranscription);
       portraitVoiceDrop = Boolean(voiceDrop);
+      portraitInChat = Boolean(portraitPreview);
       autoControls.hidden = !auto;
       chatColumn.classList.toggle("auto-mode", Boolean(auto || skipInterview));
       if (auto && !dictation.supported) {

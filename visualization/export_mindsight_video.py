@@ -1,4 +1,4 @@
-"""Exporter les dimensions ou la révélation MindSight dans une vidéo MP4."""
+"""Exporter un aller-retour par dimension ou la révélation MindSight en MP4."""
 
 import argparse
 from contextlib import contextmanager
@@ -25,7 +25,7 @@ from pyglet import graphics, shapes, text, window
 from pyglet.math import Mat4
 
 
-TURNS = (0.0, 1.0, 0.0, 1.0, 0.0)
+TURNS = (0.0, 1.0, 0.0)
 REVEAL_DURATION = REVEAL_HOLD + REVEAL_TAIL
 
 

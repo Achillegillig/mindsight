@@ -291,7 +291,7 @@ main[data-screen="result"] { width: min(82rem, 100%); }
   align-self: start;
   width: 100%;
   aspect-ratio: 1;
-  background: #d2d7df url('/static/portrait-ring.png') center / auto 85% no-repeat;
+  background: #fff;
 }
 .portrait-screen { position: relative; width: 100%; height: 100%; }
 .portrait-screen canvas { display: block; width: 100%; height: 100%; object-fit: contain; }
