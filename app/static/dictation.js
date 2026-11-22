@@ -6,10 +6,6 @@ const AUTO_PAUSE_SECONDS = 1.8;
 const AUTO_CALIBRATION_SECONDS = 0.6;
 const AUTO_NOISE_WINDOW_SECONDS = 1.2;
 
-function decibels(level) {
-  return Math.round(20 * Math.log10(Math.max(0.0001, level)));
-}
-
 function microphoneLevel(samples) {
   let power = 0;
   for (const sample of samples) power += sample * sample;
@@ -35,7 +31,6 @@ function updateNoiseFloor(run, level, duration) {
       && high <= low * 1.5) {
     // A stable rise over the whole window is a new background level.
     run.noiseFloor = low;
-    run.adjustedUntil = run.elapsed + 0.8;
     if (run.firstVoice >= run.chunks.length - count - 1) {
       run.firstVoice = undefined;
       run.voiced = 0;
@@ -88,10 +83,6 @@ async function encodeDictation(chunks, sampleRate) {
 function createDictation(answer, send, questionVoice) {
   const button = document.querySelector("#dictate");
   const status = document.querySelector("#dictation-status");
-  const microphone = document.querySelector("#microphone-level");
-  const microphoneName = document.querySelector("#microphone-name");
-  const meter = document.querySelector("#microphone-meter");
-  const debug = document.querySelector("#auto-audio-debug");
   const supported = Boolean(navigator.mediaDevices?.getUserMedia && window.AudioContext
     && window.AudioWorkletNode && window.OfflineAudioContext);
   let available = false;
@@ -103,10 +94,9 @@ function createDictation(answer, send, questionVoice) {
     button.disabled = blocked || !supported || Boolean(current && current.state !== "recording");
     const recording = current?.state === "recording";
     const automatic = recording && current.automatic;
-    button.textContent = recording ? (automatic ? "Terminer ma réponse" : "Arrêter la dictée") : "Dicter";
+    button.setAttribute("aria-label", recording ? (automatic ? "Terminer ma réponse" : "Arrêter la dictée") : "Dicter");
     button.toggleAttribute("data-auto-recording", automatic);
-    microphone.hidden = current?.state !== "recording";
-    debug.hidden = !automatic;
+    button.toggleAttribute("data-recording", recording);
     send.disabled = blocked || Boolean(current);
   }
 
@@ -170,9 +160,10 @@ function createDictation(answer, send, questionVoice) {
       }
       const addition = separator + result.text;
       answer.value += addition.slice(0, remaining);
+      answer.dispatchEvent(new Event("input", { bubbles: true }));
       finish(run, addition.length > remaining
         ? "La transcription a été raccourcie à la limite du champ."
-        : "Dictée ajoutée. Tu peux relire et modifier ta réponse.", addition.length <= remaining);
+        : "", addition.length <= remaining);
     } catch {
       finish(run, "La transcription a échoué. Tu peux réessayer.");
     }
@@ -193,11 +184,7 @@ function createDictation(answer, send, questionVoice) {
     run.elapsed += duration;
     if (run.elapsed <= AUTO_CALIBRATION_SECONDS) {
       run.background.push(level);
-      debug.textContent = `Calibrage · entrée ${decibels(level)} dBFS`;
       return;
-    }
-    if (run.noiseFloor === undefined) {
-      status.textContent = "À toi de parler. Fais une pause pour envoyer ta réponse.";
     }
     updateNoiseFloor(run, level, duration);
     const speaking = run.voiced >= 0.16;
@@ -213,9 +200,6 @@ function createDictation(answer, send, questionVoice) {
         run.firstVoice = undefined;
       }
     }
-    const state = !speaking ? "En attente de ta voix" : level >= threshold ? "Voix détectée" : "Pause";
-    const adjustment = run.elapsed < run.adjustedUntil ? " · bruit de fond réajusté" : "";
-    debug.textContent = `${state} · entrée ${decibels(level)} dBFS · fond ${decibels(run.noiseFloor)} dBFS · seuil ${decibels(threshold)} dBFS · pause ${(speaking ? run.silence : 0).toFixed(1)} / ${AUTO_PAUSE_SECONDS} s${adjustment}`;
     if (speaking && run.silence >= AUTO_PAUSE_SECONDS) stop();
     else if (!speaking && run.elapsed >= 12) {
       finish(run, "Aucune voix détectée au-dessus du bruit ambiant. Rapproche-toi du micro ou termine ta réponse manuellement au prochain essai.");
@@ -231,7 +215,7 @@ function createDictation(answer, send, questionVoice) {
     const result = new Promise((resolve) => { run.resolve = resolve; });
     current = run;
     updateControls();
-    status.textContent = "Autorise le microphone pour dicter ta réponse.";
+    status.textContent = "";
     try {
       run.context = new AudioContext();
       const resuming = run.context.resume();
@@ -249,9 +233,6 @@ function createDictation(answer, send, questionVoice) {
       if (current !== run) return;
       questionVoice.stopPlayback();
       const [track] = run.stream.getAudioTracks();
-      microphoneName.textContent = track.label || "Microphone";
-      meter.value = 0;
-      debug.textContent = "";
       track.addEventListener("ended", () => finish(run, "Le microphone a été déconnecté."), { once: true });
       run.node = new AudioWorkletNode(run.context, "microphone-recorder", {
         channelCount: 1, channelCountMode: "explicit",
@@ -263,7 +244,6 @@ function createDictation(answer, send, questionVoice) {
           if (run.firstSignal === undefined && level >= MICROPHONE_SIGNAL_THRESHOLD) {
             run.firstSignal = run.chunks.length;
           }
-          meter.value = Math.max(0, Math.min(1, (20 * Math.log10(level) + 60) / 50));
           run.chunks.push(data);
           if (automatic && run.state === "recording") {
             detectPause(run, level, data.length / run.context.sampleRate);
@@ -274,9 +254,6 @@ function createDictation(answer, send, questionVoice) {
       source.connect(run.node).connect(run.context.destination);
       run.state = "recording";
       run.timer = setTimeout(stop, MAX_DICTATION_SECONDS * 1000);
-      status.textContent = automatic
-        ? "Mesure du bruit ambiant. Attends le signal pour parler."
-        : "Parle et regarde si la jauge réagit. Audio envoyé à Azure à l’arrêt, après 30 secondes maximum.";
       updateControls();
     } catch (error) {
       const errors = {

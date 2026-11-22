@@ -1,6 +1,7 @@
 """Point d’entrée en ligne de commande de MindSight."""
 
 import argparse
+from base64 import b64encode
 import errno
 import json
 import os
@@ -43,6 +44,9 @@ def export_demo(destination):
     static = DIRECTORY / "static"
     page = (static / "index.html").read_text(encoding="utf-8")
     styles = (static / "chat.css").read_text(encoding="utf-8")
+    for filename in ("brand-mark.png", "brand-wordmark.png", "grain.png", "portrait-ring.png"):
+        encoded = b64encode((static / filename).read_bytes()).decode("ascii")
+        styles = styles.replace(f"/static/{filename}", f"data:image/png;base64,{encoded}")
     voices = (static / "voice.js").read_text(encoding="utf-8")
     script = (static / "chat.js").read_text(encoding="utf-8")
     data = json.dumps({

@@ -10,28 +10,26 @@
   <script defer src="/static/chat.js"></script>
 </head>
 <body>
-  <main>
+  <div class="intro" aria-hidden="true">
+    <div class="brand intro-brand"><span class="brand-mark"></span><span class="brand-wordmark"></span></div>
+  </div>
+  <main class="intro-active" data-screen="opening">
     <header>
-      <div><h1>MindSight</h1><p id="mode">Conversation simulée</p></div>
-      <button id="reset" type="button">Recommencer</button>
+      <h1><button id="reset" class="brand brand-reset" type="button" aria-label="MindSight, recommencer la conversation"><span class="brand-mark"></span><span class="brand-wordmark"></span></button></h1>
+      <p id="mode"></p>
     </header>
-    <dialog id="portrait-reveal" aria-label="Portrait MindSight">
-      <div class="portrait-screen">
-        <canvas width="960" height="540" role="img" aria-label="Animation des six traits du portrait"></canvas>
-        <p role="status"></p>
-        <div class="portrait-actions">
-          <button id="portrait-fullscreen" type="button" hidden>Plein écran</button>
-          <button id="portrait-close" type="button" autofocus>Quitter</button>
-        </div>
-      </div>
-    </dialog>
+    <div id="portrait-preview" aria-hidden="true"><img alt="" hidden></div>
     <div class="session-layout">
       <div class="chat-column">
+        <section id="opening-question" class="screen-message" hidden>
+          <h2><span id="opening-accessible" class="visually-hidden"></span><span id="opening-text" aria-hidden="true"></span></h2>
+        </section>
         <div class="voice-controls">
           <button id="voice-toggle" type="button" aria-label="Voix" aria-pressed="false" disabled>Voix <span aria-hidden="true">désactivée</span></button>
           <p id="voice-status" role="status"></p>
         </div>
         <ol id="messages" aria-label="Conversation" aria-live="polite"></ol>
+        <p id="profile-loading" class="screen-message" role="status" hidden>Chargement de votre profil psychologique…</p>
         <button id="voice-replay" type="button" hidden>Réécouter la question</button>
         <details id="reasoning" hidden>
           <summary>Voir les indices</summary>
@@ -43,38 +41,44 @@
           <div id="reasoning-dimensions"></div>
         </details>
         <div class="composer">
-          <div id="auto-controls" hidden>
-            <button id="auto-toggle" type="button" disabled>Démarrer l’échange vocal</button>
-            <p id="auto-status" role="status"></p>
-          </div>
           <form>
-            <label for="answer">Ta réponse</label>
-            <textarea id="answer" name="answer" rows="2" maxlength="2000" required></textarea>
+            <label for="answer" class="visually-hidden">Ta réponse</label>
+            <textarea id="answer" name="answer" rows="2" maxlength="2000" placeholder="Ta réponse" required></textarea>
             <div class="composer-actions">
-              <button id="dictate" type="button" hidden>Dicter</button>
-              <button id="send" type="submit" disabled>Envoyer</button>
+              <div id="auto-controls" hidden>
+                <button id="auto-toggle" type="button" disabled>Démarrer l’échange vocal</button>
+              </div>
+              <div class="composer-icons">
+                <button id="dictate" type="button" aria-label="Dicter" hidden></button>
+                <button id="send" type="submit" aria-label="Envoyer" disabled></button>
+              </div>
             </div>
-            <div id="microphone-level" hidden>
-              <span id="microphone-name">Microphone</span>
-              <meter id="microphone-meter" min="0" max="1" value="0" aria-label="Niveau du microphone"></meter>
-              <p id="auto-audio-debug" hidden></p>
-            </div>
+            <p id="auto-status" role="status"></p>
             <p id="dictation-status" role="status"></p>
           </form>
           <p id="status" role="status"></p>
           <button id="play-result" type="button" hidden>Écouter l’annonce finale</button>
         </div>
       </div>
-      <aside id="portrait-preview" aria-label="Aperçu du portrait" hidden>
-        <img alt="Cercle du portrait MindSight">
-      </aside>
       <section id="trait-scores" aria-labelledby="trait-scores-title" hidden>
-        <h2 id="trait-scores-title">Synthèse de la conversation</h2>
+        <button id="reset-result" class="brand brand-reset" type="button" aria-label="MindSight, recommencer la conversation"><span class="brand-mark"></span><span class="brand-wordmark"></span></button>
+        <h2 id="trait-scores-title" class="visually-hidden">Synthèse de la conversation</h2>
         <p id="trait-scores-status" role="status"></p>
         <ul id="trait-scores-list" aria-describedby="trait-scores-note" hidden></ul>
         <p id="trait-scores-note" class="reasoning-note" hidden>Le score reflète les indices d’appui recueillis pendant cette conversation. Un 0 indique qu’aucun appui n’a été retenu pour ce trait.</p>
       </section>
+      <section id="portrait-reveal" aria-label="Portrait MindSight" hidden>
+        <div class="portrait-screen">
+          <canvas width="960" height="540" role="img" aria-label="Animation des six traits du portrait"></canvas>
+          <p role="status"></p>
+          <div class="portrait-actions">
+            <button id="portrait-fullscreen" type="button" hidden>Plein écran</button>
+            <button id="portrait-close" type="button" autofocus>Quitter</button>
+          </div>
+        </div>
+      </section>
     </div>
   </main>
+  <dialog id="portrait-dialog" aria-label="Portrait MindSight en plein écran"></dialog>
 </body>
 </html>

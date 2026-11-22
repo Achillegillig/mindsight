@@ -2,6 +2,7 @@ const form = document.querySelector("form");
 const answer = document.querySelector("#answer");
 const send = document.querySelector("#send");
 const reset = document.querySelector("#reset");
+const resetResult = document.querySelector("#reset-result");
 const replay = document.querySelector("#voice-replay");
 const autoControls = document.querySelector("#auto-controls");
 const autoToggle = document.querySelector("#auto-toggle");
@@ -21,8 +22,14 @@ const scoresStatus = document.querySelector("#trait-scores-status");
 const scoresList = document.querySelector("#trait-scores-list");
 const scoresNote = document.querySelector("#trait-scores-note");
 const portraitReveal = document.querySelector("#portrait-reveal");
+const portraitDialog = document.querySelector("#portrait-dialog");
 const portraitScreen = portraitReveal.querySelector(".portrait-screen");
 const portraitFullscreen = document.querySelector("#portrait-fullscreen");
+const portraitActions = portraitScreen.querySelector(".portrait-actions");
+const openingQuestion = document.querySelector("#opening-question");
+const openingText = document.querySelector("#opening-text");
+const openingAccessible = document.querySelector("#opening-accessible");
+const profileLoading = document.querySelector("#profile-loading");
 const questionVoice = createQuestionVoice();
 let history = [];
 let finished = false;
@@ -39,6 +46,19 @@ let turnRequest;
 let finalAnnouncement;
 const demo = document.querySelector("#demo-data");
 const dictation = demo ? null : createDictation(answer, send, questionVoice);
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+const introReady = new Promise((resolve) => {
+  const brand = document.querySelector(".intro-brand");
+  const complete = () => {
+    clearTimeout(timeout);
+    page.classList.remove("intro-active");
+    resolve();
+  };
+  const timeout = setTimeout(complete, reducedMotion.matches ? 0 : 2650);
+  brand.addEventListener("animationend", (event) => {
+    if (event.target === brand) complete();
+  });
+});
 
 const analysisLabels = {
   idle: "L’analyse commencera après ta première réponse.",
@@ -75,8 +95,7 @@ async function showPortraitPreview() {
         image.src = url;
         try {
           await image.decode();
-          preview.hidden = false;
-          page.classList.add("with-portrait");
+          image.hidden = false;
           return;
         } finally {
           URL.revokeObjectURL(url);
@@ -99,26 +118,41 @@ async function sendPortraitDrop(id) {
 }
 
 function enterPortraitFullscreen() {
-  void portraitScreen.requestFullscreen().catch(() => {});
+  if (portraitDialog.open && document.fullscreenEnabled && !document.fullscreenElement) {
+    void portraitScreen.requestFullscreen().catch(() => {});
+  }
+}
+
+function updateFullscreenButton() {
+  portraitFullscreen.hidden = !document.fullscreenEnabled || document.fullscreenElement === portraitScreen;
+}
+
+function closePortraitReveal() {
+  portraitRevealRequest?.abort();
+  if (document.fullscreenElement === portraitScreen) void document.exitFullscreen().catch(() => {});
+  if (portraitDialog.open) portraitDialog.close();
+  if (portraitScreen.parentElement === portraitDialog) portraitReveal.append(portraitScreen);
+  if (playResult.parentElement === portraitActions) composer.append(playResult);
 }
 
 async function showPortraitReveal(id, onFirstFrame) {
   portraitRevealRequest?.abort();
   const request = new AbortController();
   portraitRevealRequest = request;
-  const canvas = portraitReveal.querySelector("canvas");
+  const canvas = portraitScreen.querySelector("canvas");
   const context = canvas.getContext("2d");
-  const message = portraitReveal.querySelector("p");
+  const message = portraitScreen.querySelector("p");
   const url = `/api/conversation/session/${encodeURIComponent(id)}/portrait-frame`;
   const headers = {};
   let lastFrame = performance.now();
   context.clearRect(0, 0, canvas.width, canvas.height);
   message.textContent = "Préparation du portrait…";
-  portraitReveal.showModal();
-  portraitFullscreen.hidden = !document.fullscreenEnabled || document.fullscreenElement === portraitScreen;
-  if (document.fullscreenEnabled && navigator.userActivation?.isActive && !document.fullscreenElement) {
-    enterPortraitFullscreen();
-  }
+  portraitReveal.hidden = false;
+  portraitDialog.append(portraitScreen);
+  portraitActions.append(playResult);
+  if (!portraitDialog.open) portraitDialog.showModal();
+  updateFullscreenButton();
+  if (navigator.userActivation?.isActive) enterPortraitFullscreen();
 
   while (!request.signal.aborted) {
     try {
@@ -291,14 +325,52 @@ function renderScores(snapshot) {
   scoresNote.hidden = randomProfile;
 }
 
-async function showFinalScores() {
-  scoresPanel.hidden = false;
-  page.classList.add("with-scores");
-  if (demo) {
-    scoresStatus.textContent = "L’analyse des traits est disponible avec le serveur MindSight.";
+function setScreen(screen) {
+  page.dataset.screen = screen;
+  openingQuestion.hidden = screen !== "opening";
+  profileLoading.hidden = screen !== "loading";
+}
+
+function enterConversation() {
+  if (page.dataset.screen === "opening" && answer.value.length) setScreen("conversation");
+}
+
+async function typeOpening(question, run) {
+  await introReady;
+  if (run !== scoresRun || page.dataset.screen !== "opening") return;
+  const text = `« ${question} »`;
+  if (reducedMotion.matches) {
+    openingText.textContent = text;
     return;
   }
+  for (const character of text) {
+    if (run !== scoresRun || page.dataset.screen !== "opening") return;
+    openingText.textContent += character;
+    await new Promise((resolve) => setTimeout(resolve, 23));
+  }
+}
+
+async function showResultScreen(run) {
+  if (!reducedMotion.matches) {
+    await page.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 220, easing: "ease-in" }).finished;
+  }
+  if (run !== scoresRun || openingSession) return false;
+  setScreen("result");
+  scoresPanel.hidden = false;
+  portraitReveal.hidden = false;
+  setBusy(false);
+  window.scrollTo({ top: 0, behavior: "instant" });
+  return true;
+}
+
+async function showFinalScores() {
   const run = ++scoresRun;
+  setScreen("loading");
+  if (demo) {
+    scoresStatus.textContent = "L’analyse des traits est disponible avec le serveur MindSight.";
+    await showResultScreen(run);
+    return;
+  }
   const url = `/api/conversation/session/${encodeURIComponent(sessionId)}/scores`;
   scoresStatus.textContent = "Calcul des scores en cours…";
   while (run === scoresRun) {
@@ -308,11 +380,14 @@ async function showFinalScores() {
       const snapshot = await response.json();
       if (run !== scoresRun) return;
       if (snapshot.ready) {
+        if (!await showResultScreen(run)) return;
         renderScores(snapshot);
         return snapshot;
       }
     } catch {
-      if (run === scoresRun) scoresStatus.textContent = "Impossible de charger les scores.";
+      if (run === scoresRun && await showResultScreen(run)) {
+        scoresStatus.textContent = "Impossible de charger les scores.";
+      }
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 350));
@@ -417,7 +492,7 @@ async function askAutomatically(run, question) {
   const ready = await dictation.record(true);
   if (autoRun !== run) return;
   if (ready) await submitAnswer();
-  else stopAutomatic("Échange vocal arrêté. Tu peux le relancer ou écrire ta réponse.");
+  else stopAutomatic();
 }
 
 async function announceResult(announcement) {
@@ -457,7 +532,6 @@ async function concludeConversation(scores) {
   finalAnnouncement = announcement;
   if (portraitVoiceDrop && announcement.sessionId) {
     if (randomProfile) {
-      // Le profil peut être prêt avant que le lecteur soit à l’écoute sur OSC.
       await new Promise((resolve) => showPortraitReveal(announcement.sessionId, resolve).then(resolve, resolve));
     } else {
       void showPortraitReveal(announcement.sessionId);
@@ -469,7 +543,8 @@ async function concludeConversation(scores) {
 function setBusy(value) {
   busy = value;
   reset.disabled = openingSession;
-  form.hidden = finished;
+  resetResult.disabled = openingSession;
+  form.hidden = finished && page.dataset.screen !== "loading";
   answer.readOnly = busy || finished;
   send.disabled = busy || finished || history.length === 0;
   dictation?.setBlocked(send.disabled);
@@ -496,13 +571,13 @@ async function start() {
   let scores;
   try {
     const { opening, session_id, reasoning: showReasoning, skip_interview: skipInterview } = await openSession();
-    portraitRevealRequest?.abort();
-    portraitReveal.close();
+    closePortraitReveal();
+    portraitReveal.hidden = true;
     sessionId = session_id;
     reasoningRun++;
     scoresRun++;
     scoresPanel.hidden = true;
-    page.classList.remove("with-scores");
+    setScreen("opening");
     scoresList.hidden = true;
     scoresNote.hidden = true;
     scoresList.replaceChildren();
@@ -517,24 +592,29 @@ async function start() {
     finished = Boolean(skipInterview);
     history = finished ? [] : [opening];
     messages.replaceChildren();
-    answer.value = "";
-    status.textContent = "";
+    openingText.textContent = "";
+    openingAccessible.textContent = "";
     if (finished) {
       scores = showFinalScores();
     } else {
-      const firstQuestion = append(opening, true);
+      const question = opening.content.split("\n").at(-1);
+      append({ ...opening, content: question }, true);
+      openingAccessible.textContent = question;
+      void typeOpening(question, scoresRun);
       questionVoice.setQuestion(opening.content);
-      revealMessage(firstQuestion);
     }
+    window.scrollTo({ top: 0, behavior: "instant" });
+    answer.value = "";
+    status.textContent = "";
   } catch {
-    status.textContent = "Impossible d’ouvrir une nouvelle session. Clique sur Recommencer pour réessayer.";
+    status.textContent = "Impossible d’ouvrir une nouvelle session. Clique sur le logo pour réessayer.";
   } finally {
     openingSession = false;
     setBusy(false);
   }
   if (scores) {
     const run = scoresRun;
-    await modeReady;
+    await Promise.all([modeReady, introReady]);
     if (scoresRun === run) await concludeConversation(scores);
   }
 }
@@ -546,11 +626,13 @@ answer.addEventListener("keydown", (event) => {
     form.requestSubmit(send);
   }
 });
+answer.addEventListener("input", enterConversation);
 
 async function submitAnswer() {
   const draft = answer.value;
   const content = draft.trim();
   if (!content || send.disabled || dictation?.active) return;
+  enterConversation();
 
   const run = autoRun;
   const controller = new AbortController();
@@ -588,11 +670,11 @@ async function submitAnswer() {
       if (run && autoRun === run) next = () => askAutomatically(run, reply);
     }
     void refreshReasoning((history.length - 1) / 2);
-    status.textContent = finished ? "Conversation terminée." : "";
-    revealMessage(response);
+    status.textContent = "";
+    revealMessage(done ? profileLoading : response);
   } catch (error) {
     if (controller.signal.aborted) return;
-    if (run && autoRun === run) stopAutomatic("Échange vocal arrêté. Tu peux renvoyer ta réponse.");
+    if (run && autoRun === run) stopAutomatic();
     submitted.remove();
     waiting.remove();
     answer.value = draft;
@@ -618,7 +700,7 @@ form.addEventListener("submit", (event) => {
 
 autoToggle.addEventListener("click", () => {
   if (autoRun) {
-    stopAutomatic("Échange vocal arrêté.");
+    stopAutomatic();
     return;
   }
   if (answer.value.trim() || dictation.active) {
@@ -637,21 +719,18 @@ playResult.addEventListener("click", () => {
 });
 
 portraitFullscreen.addEventListener("click", enterPortraitFullscreen);
-document.querySelector("#portrait-close").addEventListener("click", () => portraitReveal.close());
-portraitReveal.addEventListener("close", () => {
-  if (portraitReveal.open) return;
-  portraitRevealRequest?.abort();
-  if (document.fullscreenElement === portraitScreen) void document.exitFullscreen().catch(() => {});
-  if (finished && !openingSession) scoresPanel.scrollIntoView({ block: "start" });
+document.querySelector("#portrait-close").addEventListener("click", closePortraitReveal);
+portraitDialog.addEventListener("close", () => {
+  if (!portraitDialog.open) closePortraitReveal();
 });
-document.addEventListener("fullscreenchange", () => {
-  portraitFullscreen.hidden = !document.fullscreenEnabled || document.fullscreenElement === portraitScreen;
-});
+document.addEventListener("fullscreenchange", updateFullscreenButton);
 
-reset.addEventListener("click", async () => {
+async function restartFromLogo() {
   await start();
   if (!finished) answer.focus({ preventScroll: true });
-});
+}
+reset.addEventListener("click", restartFromLogo);
+resetResult.addEventListener("click", restartFromLogo);
 const modeReady = demo ? Promise.resolve() : fetch("/api/conversation/mode")
     .then((response) => response.json())
     .then(({ model, azureSpeech, azureTranscription, auto, skipInterview, portraitPreview, portraitVoiceDrop: voiceDrop }) => {
@@ -665,9 +744,8 @@ const modeReady = demo ? Promise.resolve() : fetch("/api/conversation/mode")
       }
       updateAutoControls();
       if (portraitPreview) void showPortraitPreview();
-      const mode = document.querySelector("#mode");
-      mode.textContent = model ? "" : "Conversation simulée";
-      if (skipInterview) mode.textContent = "Profil de démonstration";
+      document.querySelector("#mode").textContent = skipInterview ? "Profil de démonstration"
+        : (model ? "" : "Conversation simulée");
     })
     .catch(() => {
       document.querySelector("#mode").textContent = "Serveur indisponible";

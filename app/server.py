@@ -33,6 +33,10 @@ STATIC = {
     "/static/voice.js": ("voice.js", "text/javascript"),
     "/static/dictation.js": ("dictation.js", "text/javascript"),
     "/static/microphone.js": ("microphone.js", "text/javascript"),
+    "/static/brand-mark.png": ("brand-mark.png", "image/png"),
+    "/static/brand-wordmark.png": ("brand-wordmark.png", "image/png"),
+    "/static/grain.png": ("grain.png", "image/png"),
+    "/static/portrait-ring.png": ("portrait-ring.png", "image/png"),
 }
 TURN_PATH = "/api/conversation/turn"
 SESSION_PATH = "/api/conversation/session"
@@ -427,7 +431,8 @@ class ConversationHandler(BaseHTTPRequestHandler):
                 self.send_json(200, reasoning)
         elif self.path in STATIC:
             filename, media_type = STATIC[self.path]
-            self.send_content(200, (DIRECTORY / "static" / filename).read_bytes(), f"{media_type}; charset=utf-8")
+            content_type = f"{media_type}; charset=utf-8" if media_type.startswith("text/") else media_type
+            self.send_content(200, (DIRECTORY / "static" / filename).read_bytes(), content_type)
         else:
             self.send_json(404, {"detail": "Page introuvable."})
 
