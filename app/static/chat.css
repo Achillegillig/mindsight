@@ -23,7 +23,6 @@ header p { margin: 0; }
   background: white;
   border-radius: .85rem;
   overflow-wrap: anywhere;
-  scroll-margin-bottom: 10rem;
 }
 #messages > [data-role="user"] { background: #dce8d9; margin-left: 1.5rem; }
 #messages > .latest-question { background: #f8fbf5; box-shadow: inset 0 0 0 1px #8da48c; }

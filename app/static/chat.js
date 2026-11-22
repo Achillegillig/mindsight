@@ -7,6 +7,7 @@ const autoControls = document.querySelector("#auto-controls");
 const autoToggle = document.querySelector("#auto-toggle");
 const autoStatus = document.querySelector("#auto-status");
 const chatColumn = form.closest(".chat-column");
+const composer = form.closest(".composer");
 const messages = document.querySelector("#messages");
 const status = document.querySelector("#status");
 const reasoning = document.querySelector("#reasoning");
@@ -312,6 +313,20 @@ function append(message, isQuestion = false) {
   return item;
 }
 
+function revealMessage(message) {
+  requestAnimationFrame(() => {
+    if (!message.isConnected) return;
+    const bounds = message.getBoundingClientRect();
+    const bottom = window.innerHeight - composer.getBoundingClientRect().height - 12;
+    const top = bounds.top - 12;
+    const offset = top < 0 ? top : Math.max(0, Math.min(top, bounds.bottom - bottom));
+    if (offset) {
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      window.scrollBy({ top: offset, behavior: reducedMotion ? "instant" : "smooth" });
+    }
+  });
+}
+
 function updateAutoControls() {
   autoToggle.disabled = !autoRun && (busy || finished || !history.length || !dictation?.supported);
   autoToggle.textContent = autoRun ? "Arrêter l’échange vocal" : "Démarrer l’échange vocal";
@@ -413,8 +428,9 @@ async function start() {
     history = [opening];
     finished = false;
     messages.replaceChildren();
-    append(opening, true);
+    const firstQuestion = append(opening, true);
     questionVoice.setQuestion(opening.content);
+    revealMessage(firstQuestion);
     answer.value = "";
     status.textContent = "";
   } catch {
@@ -455,7 +471,7 @@ async function submitAnswer() {
   messages.append(waiting);
   const request = { controller, submitted, waiting, draft };
   turnRequest = request;
-  waiting.scrollIntoView({ block: "nearest" });
+  revealMessage(waiting);
   try {
     const { reply, done } = await getReply([...history, userMessage], controller.signal);
     if (controller.signal.aborted) return;
@@ -475,7 +491,7 @@ async function submitAnswer() {
     }
     void refreshReasoning((history.length - 1) / 2);
     status.textContent = finished ? "Conversation terminée." : "";
-    response.scrollIntoView({ block: "nearest" });
+    revealMessage(response);
   } catch (error) {
     if (controller.signal.aborted) return;
     if (run && autoRun === run) stopAutomatic("Échange vocal arrêté. Tu peux renvoyer ta réponse.");
@@ -520,7 +536,7 @@ autoToggle.addEventListener("click", () => {
 
 reset.addEventListener("click", async () => {
   await start();
-  if (!finished) answer.focus();
+  if (!finished) answer.focus({ preventScroll: true });
 });
 start();
 
