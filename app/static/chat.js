@@ -6,6 +6,7 @@ const replay = document.querySelector("#voice-replay");
 const autoControls = document.querySelector("#auto-controls");
 const autoToggle = document.querySelector("#auto-toggle");
 const autoStatus = document.querySelector("#auto-status");
+const playResult = document.querySelector("#play-result");
 const chatColumn = form.closest(".chat-column");
 const composer = form.closest(".composer");
 const messages = document.querySelector("#messages");
@@ -31,6 +32,7 @@ let autoRun;
 let portraitVoiceDrop = false;
 let openingSession = false;
 let turnRequest;
+let finalAnnouncement;
 const demo = document.querySelector("#demo-data");
 const dictation = demo ? null : createDictation(answer, send, questionVoice);
 
@@ -362,24 +364,39 @@ async function askAutomatically(run, question) {
   else stopAutomatic("Échange vocal arrêté. Tu peux le relancer ou écrire ta réponse.");
 }
 
-async function concludeAutomatically(run, scores) {
-  autoStatus.textContent = "Préparation de la synthèse…";
+async function announceResult(announcement) {
+  if (finalAnnouncement !== announcement) return;
+  playResult.hidden = true;
+  const played = await questionVoice.play(announcement.message);
+  if (finalAnnouncement !== announcement) return;
+  if (!played) {
+    status.textContent = "La lecture automatique a échoué. Tu peux lancer l’annonce manuellement.";
+    playResult.hidden = false;
+    return;
+  }
+  finalAnnouncement = undefined;
+  status.textContent = "Conversation terminée.";
+  if (portraitVoiceDrop && announcement.sessionId) {
+    try {
+      await sendPortraitDrop(announcement.sessionId);
+    } catch {
+      if (sessionId === announcement.sessionId && !openingSession) {
+        status.textContent = "Le portrait se déclenchera automatiquement dans quelques secondes.";
+      }
+    }
+  }
+}
+
+async function concludeConversation(scores) {
+  const run = scoresRun;
+  stopAutomatic();
   const snapshot = await scores;
-  if (autoRun !== run) return;
+  if (scoresRun !== run || openingSession || !finished) return;
   const message = snapshot && !["failed", "simulated"].includes(snapshot.analysis_status)
     ? "Voici à quoi ressemble votre profil psychologique sous forme visuelle."
     : "La synthèse n’est pas disponible pour cette conversation.";
-  if (!await playAutomatically(run, message)) return;
-  if (portraitVoiceDrop && snapshot?.ready) {
-    try {
-      await sendPortraitDrop(snapshot.session_id);
-    } catch {
-      if (autoRun === run) stopAutomatic("Le portrait se déclenchera automatiquement dans quelques secondes.");
-      return;
-    }
-  }
-  if (autoRun !== run) return;
-  stopAutomatic("Échange vocal terminé.");
+  finalAnnouncement = { message, sessionId: snapshot?.ready ? snapshot.session_id : undefined };
+  await announceResult(finalAnnouncement);
 }
 
 function setBusy(value) {
@@ -395,6 +412,8 @@ function setBusy(value) {
 async function start() {
   if (openingSession) return;
   openingSession = true;
+  finalAnnouncement = undefined;
+  playResult.hidden = true;
   if (turnRequest) {
     turnRequest.controller.abort();
     turnRequest.submitted.remove();
@@ -484,7 +503,7 @@ async function submitAnswer() {
     const response = append(assistantMessage, !done);
     if (done) {
       const scores = showFinalScores();
-      if (run && autoRun === run) next = () => concludeAutomatically(run, scores);
+      next = () => concludeConversation(scores);
     } else {
       questionVoice.setQuestion(reply);
       if (run && autoRun === run) next = () => askAutomatically(run, reply);
@@ -532,6 +551,10 @@ autoToggle.addEventListener("click", () => {
   questionVoice.setAutomatic(true);
   updateAutoControls();
   void askAutomatically(run, history.at(-1).content);
+});
+
+playResult.addEventListener("click", () => {
+  if (finalAnnouncement) void announceResult(finalAnnouncement);
 });
 
 reset.addEventListener("click", async () => {

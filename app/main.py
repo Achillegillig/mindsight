@@ -169,8 +169,7 @@ if __name__ == "__main__":
                         if args.opengl:
                             from visualization.mcp_to_osc import send_portrait_drop
 
-                            if args.auto:
-                                portrait_drop = partial(send_portrait_drop, args.osc_port)
+                            portrait_drop = partial(send_portrait_drop, args.osc_port)
                             preview_dir = stack.enter_context(TemporaryDirectory(prefix="mindsight-portrait-"))
                             portrait_preview = Path(preview_dir) / "circle.png"
                             environment = os.environ.copy()
@@ -180,7 +179,7 @@ if __name__ == "__main__":
                                 sys.executable, "-X", "utf8", "-m", "visualization.mindsight_opengl",
                                 "--session-reveal", "--osc-port", str(args.osc_port),
                                 "--preview-image", str(portrait_preview),
-                                *(["--voice-drop"] if args.auto else []),
+                                "--voice-drop",
                             ], env=environment)
                             stack.callback(stop_process, portrait)
                         follow = stack.enter_context(follow_portrait_sessions(
