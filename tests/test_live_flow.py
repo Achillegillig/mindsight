@@ -106,6 +106,39 @@ class FixtureOpenRouter(BaseHTTPRequestHandler):
 
 
 class LiveFlowTests(unittest.TestCase):
+    def test_skip_interview_provides_the_same_final_scores_to_chat_and_osc(self):
+        with ConversationService(load_catalog(), skip_interview=True) as service:
+            handler = partial(ConversationHandler, service=service)
+            with serving(handler) as chat_url, serve_mcp(service, 0) as mcp_url:
+                session = post(chat_url + "/api/conversation/session", {})
+                self.assertTrue(session["skip_interview"])
+                self.assertIsNone(session["opening"])
+                session_id = session["session_id"]
+                scores_url = f"{chat_url}/api/conversation/session/{session_id}/scores"
+                with urlopen(scores_url, timeout=5) as response:
+                    scores = json.load(response)
+                self.assertTrue(scores["ready"])
+                self.assertEqual(scores["through_turn"], 0)
+                self.assertEqual(scores["analysis_status"], "random")
+                self.assertEqual(sum(trait["score"] > 0 for trait in scores["traits"]), 3)
+                self.assertTrue(all(0 <= trait["score"] <= 10 for trait in scores["traits"]))
+                self.assertTrue(all(trait["episode_count"] == 0 for trait in scores["traits"]))
+                with urlopen(scores_url, timeout=5) as response:
+                    self.assertEqual(json.load(response), scores)
+
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as receiver:
+                    receiver.bind(("127.0.0.1", 0))
+                    receiver.settimeout(2)
+                    with SimpleUDPClient("127.0.0.1", receiver.getsockname()[1]) as osc:
+                        channels = load_mapping(MAPPING_PATH.with_name("mapping_traits.yaml"))
+                        asyncio.run(bridge(mcp_url, session_id, channels, osc, once=True, portrait_events=True))
+                    message = OscPacket(receiver.recv(1024)).messages[0].message
+                    self.assertEqual(message.address, "/portrait/reveal")
+                    expected = [session_id]
+                    for trait in scores["traits"]:
+                        expected.extend((trait["id"], float(trait["score"])))
+                    self.assertEqual(message.params, expected)
+
     def test_portrait_frames_are_session_scoped_and_mark_the_last_image(self):
         with TemporaryDirectory() as directory, ConversationService(load_catalog()) as service:
             preview = Path(directory) / "circle.png"

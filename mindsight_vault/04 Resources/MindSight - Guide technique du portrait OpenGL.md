@@ -26,6 +26,8 @@ python -m venv .venv
 
 Ouvre l’adresse affichée par `app.main`, généralement `http://127.0.0.1:8000`, puis démarre une conversation. Si le port OSC `9000` est occupé, ajoute `--osc-port 9001`. Avec `--simulate`, le chat utilise des relances préparées et les scores restent à zéro.
 
+Ajoute `--skip-interview` pour ouvrir directement la synthèse. À chaque nouvelle session, trois dimensions sont tirées au sort et reçoivent chacune un score de 1 à 10. Les autres scores valent zéro.
+
 Dès que les scores finaux sont prêts, la page se place sur le portrait. Le cercle apparaît sur fond blanc et les six traits s’affichent progressivement. En direct, le drop commence 2,5 secondes après la fin de l’annonce vocale. Les traits disparaissent au moment où le cercle éclate. Le lecteur exporte également un MP4 par session dans `videos/`. Le MP4 dure 80 secondes et cale le drop à 30 secondes sur la piste musicale. [Script d’export](../../visualization/export_mindsight_video.py)
 
 Pour les vidéos de révélation, place la piste dans `videos/soundtrack/`. Le dossier `videos/soundrack/` du montage local est également reconnu. L’export cale le début de la vidéo à **14 min 40 s** dans le morceau. En export manuel d’une révélation, `--soundtrack` sélectionne un fichier et `--silent` permet un rendu silencieux. L’export des exemples par dimension avec curseur est silencieux.

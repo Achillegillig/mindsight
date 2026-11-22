@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler
 from io import BytesIO
+from random import randint, sample
 from threading import Lock
 from uuid import uuid4
 
@@ -23,7 +24,7 @@ from .dialogue import (
 from .extraction import ExtractionError, extract_turn, observe_turn
 from .openrouter import OpenRouterError, generate_reply
 from .prompt_config import DIRECTORY
-from .quantification import quantify_dimensions, scores_on_ten
+from .quantification import MAX_SCORE, quantify_dimensions, scores_on_ten
 
 STATIC = {
     "/": ("index.html", "text/html"),
@@ -42,6 +43,7 @@ MAX_BODY_BYTES = 256 * 1024
 RECORD_PATH = DIRECTORY.parent / "test-results.jsonl"
 RECORD_LOCK = Lock()
 LOGGER = logging.getLogger(__name__)
+RANDOM_DIMENSION_COUNT = 3
 
 
 def record_turn(path, messages, result):
@@ -89,12 +91,15 @@ class Session:
 
 class ConversationService:
     def __init__(self, catalog, *, model=None, api_key=None, record_path=None, reasoning=False,
-                 extractor=extract_turn, observer=observe_turn, dialogue=generate_reply):
+                 skip_interview=False, extractor=extract_turn, observer=observe_turn, dialogue=generate_reply):
+        if skip_interview and len(catalog.dimensions) < RANDOM_DIMENSION_COUNT:
+            raise ValueError(f"--skip-interview nécessite au moins {RANDOM_DIMENSION_COUNT} dimensions.")
         self.catalog = catalog
         self.model = model
         self.api_key = api_key
         self.record_path = record_path
-        self.reasoning = reasoning
+        self.reasoning = reasoning and not skip_interview
+        self.skip_interview = skip_interview
         self.extractor = extractor
         self.observer = observer
         self.dialogue = dialogue
@@ -115,6 +120,12 @@ class ConversationService:
             "revision": 0, "through_turn": 0, "latest_turn": 0, "analysis_status": "idle",
             "dimensions": quantify_dimensions([], self.catalog), "observations": {},
         })
+        if self.skip_interview:
+            for dimension in sample(session.snapshot["dimensions"], RANDOM_DIMENSION_COUNT):
+                score = randint(1, MAX_SCORE)
+                dimension.update(score=score, appui=score / MAX_SCORE, status="random")
+            session.snapshot.update(revision=1, analysis_status="random")
+            session.finished_turn = 0
         with self.sessions_lock:
             self.sessions[session_id] = session
         return session_id
@@ -226,7 +237,7 @@ class ConversationService:
             LOGGER.error("Écriture du journal de test impossible : %s", error)
 
     def process_legacy_turn(self, messages):
-        if messages[-2]["content"] == CLOSING:
+        if self.skip_interview or messages[-2]["content"] == CLOSING:
             raise TurnConflict("Cette conversation est terminée.")
         extraction = self.analyze(messages) if self.model else None
         reply, done = self.reply(messages, extraction)
@@ -246,7 +257,7 @@ class ConversationService:
             if messages[:-1] != session.history:
                 raise TurnConflict("L’historique ne correspond plus à cette session.")
 
-            if session.history[-1]["content"] == CLOSING:
+            if session.finished_turn is not None:
                 raise TurnConflict("Cette conversation est terminée.")
 
             observations = self.observe(messages) if self.model else None
@@ -382,6 +393,7 @@ class ConversationHandler(BaseHTTPRequestHandler):
                 "azureSpeech": self.speech is not None,
                 "azureTranscription": self.transcription is not None,
                 "auto": self.auto,
+                "skipInterview": self.service.skip_interview,
                 "portraitPreview": self.portrait_preview is not None,
                 "portraitVoiceDrop": self.portrait_drop is not None,
             })
@@ -454,7 +466,8 @@ class ConversationHandler(BaseHTTPRequestHandler):
             if self.on_session_created is not None:
                 self.on_session_created(session_id)
             self.send_json(201, {
-                "session_id": session_id, "opening": OPENING, "reasoning": self.service.reasoning,
+                "session_id": session_id, "opening": None if self.service.skip_interview else OPENING,
+                "reasoning": self.service.reasoning, "skip_interview": self.service.skip_interview,
             })
             return
         if self.path not in (TURN_PATH, SPEECH_PATH, "/api/portrait/drop"):

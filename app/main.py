@@ -114,6 +114,8 @@ if __name__ == "__main__":
     parser.add_argument("--export", type=Path, help="Générer une démo HTML ouvrable sans serveur.")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="Identifiant du modèle OpenRouter.")
     parser.add_argument("--simulate", action="store_true", help="Utiliser les relances préparées.")
+    parser.add_argument("--skip-interview", action="store_true",
+                        help="Ouvrir directement la synthèse avec trois dimensions tirées au sort.")
     parser.add_argument("--open", action="store_true",
                         help="Ouvrir Firefox ou Chrome dès que le serveur écoute.")
     parser.add_argument("--auto", action="store_true", help="Ouvrir le chat en mode vocal automatique.")
@@ -133,13 +135,16 @@ if __name__ == "__main__":
         parser.error("--osc-port doit être compris entre 1 et 65535.")
     if args.opengl and args.export:
         parser.error("--opengl nécessite le serveur MindSight.")
+    if args.skip_interview and args.export:
+        parser.error("--skip-interview nécessite le serveur MindSight.")
     if args.export:
         export_demo(args.export)
         print(f"Démo générée dans {args.export.resolve()}")
     else:
-        api_key = "" if args.simulate else config_value("OPENROUTER_API_KEY")
-        if not args.simulate and not api_key:
-            parser.error("Renseigne OPENROUTER_API_KEY dans .env ou utilise --simulate.")
+        use_openrouter = not (args.simulate or args.skip_interview)
+        api_key = config_value("OPENROUTER_API_KEY") if use_openrouter else ""
+        if use_openrouter and not api_key:
+            parser.error("Renseigne OPENROUTER_API_KEY dans .env, ou utilise --simulate ou --skip-interview.")
         speech_key = config_value("AZURE_SPEECH_KEY")
         speech_region = config_value("AZURE_SPEECH_REGION")
         voice = config_value("AZURE_SPEECH_VOICE") or DEFAULT_VOICE
@@ -148,20 +153,22 @@ if __name__ == "__main__":
         transcription = None
         if speech_key and speech_region:
             speech = partial(synthesize, speech_key, speech_region, voice, style=style)
-            transcription = partial(transcribe, speech_key, speech_region)
-        transcription_model = config_value("AZURE_SPEECH_TRANSCRIPTION_MODEL") or "short"
-        if transcription_model.casefold() == MAI_TRANSCRIPTION_MODEL.casefold():
-            if not speech_key or not speech_region:
-                parser.error("MAI-Transcribe-2 nécessite AZURE_SPEECH_KEY et AZURE_SPEECH_REGION.")
-            try:
-                url = mai_transcription_url(config_value("AZURE_SPEECH_ENDPOINT"))
-            except ValueError as error:
-                parser.error(str(error))
-            transcription = partial(transcribe_with_mai, speech_key, speech_region, url)
-        elif transcription_model.casefold() != "short":
-            parser.error("AZURE_SPEECH_TRANSCRIPTION_MODEL doit valoir short ou MAI-Transcribe-2.")
-        if args.auto and transcription is None:
-            parser.error("--auto nécessite AZURE_SPEECH_KEY et AZURE_SPEECH_REGION.")
+        if not args.skip_interview:
+            if speech_key and speech_region:
+                transcription = partial(transcribe, speech_key, speech_region)
+            transcription_model = config_value("AZURE_SPEECH_TRANSCRIPTION_MODEL") or "short"
+            if transcription_model.casefold() == MAI_TRANSCRIPTION_MODEL.casefold():
+                if not speech_key or not speech_region:
+                    parser.error("MAI-Transcribe-2 nécessite AZURE_SPEECH_KEY et AZURE_SPEECH_REGION.")
+                try:
+                    url = mai_transcription_url(config_value("AZURE_SPEECH_ENDPOINT"))
+                except ValueError as error:
+                    parser.error(str(error))
+                transcription = partial(transcribe_with_mai, speech_key, speech_region, url)
+            elif transcription_model.casefold() != "short":
+                parser.error("AZURE_SPEECH_TRANSCRIPTION_MODEL doit valoir short ou MAI-Transcribe-2.")
+            if args.auto and transcription is None:
+                parser.error("--auto nécessite AZURE_SPEECH_KEY et AZURE_SPEECH_REGION.")
 
         os.environ.setdefault("HAYSTACK_TELEMETRY_ENABLED", "false")
         from .mcp_server import serve_mcp
@@ -170,15 +177,17 @@ if __name__ == "__main__":
 
         try:
             catalog = load_catalog()
+            service = ConversationService(
+                catalog,
+                model=args.model if use_openrouter else None,
+                api_key=api_key,
+                record_path=RECORD_PATH if args.record else None,
+                reasoning=args.reasoning,
+                skip_interview=args.skip_interview,
+            )
         except (OSError, ValueError) as error:
             parser.exit(1, f"Catalogue de dimensions invalide : {error}\n")
-        with ConversationService(
-            catalog,
-            model=None if args.simulate else args.model,
-            api_key=api_key,
-            record_path=RECORD_PATH if args.record else None,
-            reasoning=args.reasoning,
-        ) as service:
+        with service:
             try:
                 with ExitStack() as stack:
                     mcp_url = stack.enter_context(serve_mcp(service, args.mcp_port))
@@ -209,7 +218,7 @@ if __name__ == "__main__":
                         ))
                     handler = partial(
                         ConversationHandler, service=service, speech=speech,
-                        transcription=transcription, auto=args.auto, on_session_created=follow,
+                        transcription=transcription, auto=args.auto and not args.skip_interview, on_session_created=follow,
                         portrait_preview=portrait_preview,
                         portrait_drop=portrait_drop,
                     )
@@ -217,7 +226,9 @@ if __name__ == "__main__":
                     url = f"http://127.0.0.1:{server.server_port}/"
                     print(f"MindSight — {url}", flush=True)
                     print(f"MCP — {mcp_url}", flush=True)
-                    mode = "conversation simulée" if args.simulate else f"OpenRouter, modèle {args.model}"
+                    mode = f"OpenRouter, modèle {args.model}" if use_openrouter else "conversation simulée"
+                    if args.skip_interview:
+                        mode = "profil de démonstration tiré au sort"
                     print(f"Mode — {mode}.", flush=True)
                     if args.record:
                         print(f"Journal de test — {RECORD_PATH}", flush=True)

@@ -21,6 +21,8 @@ const scoresStatus = document.querySelector("#trait-scores-status");
 const scoresList = document.querySelector("#trait-scores-list");
 const scoresNote = document.querySelector("#trait-scores-note");
 const portraitReveal = document.querySelector("#portrait-reveal");
+const portraitScreen = portraitReveal.querySelector(".portrait-screen");
+const portraitFullscreen = document.querySelector("#portrait-fullscreen");
 const questionVoice = createQuestionVoice();
 let history = [];
 let finished = false;
@@ -45,6 +47,7 @@ const analysisLabels = {
   partial: "Analyse partielle. Les observations disponibles sont affichées.",
   failed: "Analyse indisponible pour le dernier tour.",
   simulated: "Mode simulé. Aucune analyse de traits n’est exécutée.",
+  random: "Trois dimensions ont été tirées au sort.",
 };
 const subjects = { participant: "Participant", tiers: "Tiers", personnage: "Personnage", incertain: "Incertain" };
 const modes = {
@@ -95,7 +98,11 @@ async function sendPortraitDrop(id) {
   if (!response.ok) throw new Error("Signal du portrait indisponible.");
 }
 
-async function showPortraitReveal(id) {
+function enterPortraitFullscreen() {
+  void portraitScreen.requestFullscreen().catch(() => {});
+}
+
+async function showPortraitReveal(id, onFirstFrame) {
   portraitRevealRequest?.abort();
   const request = new AbortController();
   portraitRevealRequest = request;
@@ -107,8 +114,11 @@ async function showPortraitReveal(id) {
   let lastFrame = performance.now();
   context.clearRect(0, 0, canvas.width, canvas.height);
   message.textContent = "Préparation du portrait…";
-  portraitReveal.hidden = false;
-  portraitReveal.scrollIntoView({ block: "start" });
+  portraitReveal.showModal();
+  portraitFullscreen.hidden = !document.fullscreenEnabled || document.fullscreenElement === portraitScreen;
+  if (document.fullscreenEnabled && navigator.userActivation?.isActive && !document.fullscreenElement) {
+    enterPortraitFullscreen();
+  }
 
   while (!request.signal.aborted) {
     try {
@@ -118,6 +128,7 @@ async function showPortraitReveal(id) {
         if (!request.signal.aborted) {
           context.drawImage(frame, 0, 0, canvas.width, canvas.height);
           headers["If-None-Match"] = response.headers.get("ETag");
+          if (message.textContent) onFirstFrame?.();
           message.textContent = "";
           lastFrame = performance.now();
         }
@@ -259,6 +270,7 @@ async function refreshReasoning(targetTurn = 0) {
 }
 
 function renderScores(snapshot) {
+  const randomProfile = snapshot.analysis_status === "random";
   scoresList.replaceChildren(...snapshot.traits.map((trait) => {
     const row = document.createElement("li");
     const label = textElement("strong", trait.label);
@@ -268,14 +280,15 @@ function renderScores(snapshot) {
     bar.value = trait.score;
     bar.setAttribute("aria-hidden", "true");
     const count = trait.episode_count;
-    const evidence = textElement("span", count === 0 ? "Aucun indice retenu"
-      : `${count} ${count === 1 ? "épisode avec indice" : "épisodes avec indices"}`);
+    const evidence = textElement("span", randomProfile
+      ? (trait.status === "random" ? "Tiré au sort" : "Au repos")
+      : (count === 0 ? "Aucun indice retenu" : `${count} ${count === 1 ? "épisode avec indice" : "épisodes avec indices"}`));
     row.append(label, score, bar, evidence);
     return row;
   }));
   scoresStatus.textContent = analysisLabels[snapshot.analysis_status];
   scoresList.hidden = false;
-  scoresNote.hidden = false;
+  scoresNote.hidden = randomProfile;
 }
 
 async function showFinalScores() {
@@ -412,13 +425,13 @@ async function announceResult(announcement) {
   playResult.hidden = true;
   const played = await questionVoice.play(announcement.message);
   if (finalAnnouncement !== announcement) return;
-  if (!played) {
+  if (!played && !announcement.randomProfile) {
     status.textContent = "La lecture automatique a échoué. Tu peux lancer l’annonce manuellement.";
     playResult.hidden = false;
     return;
   }
   finalAnnouncement = undefined;
-  status.textContent = "Conversation terminée.";
+  status.textContent = announcement.randomProfile ? "" : "Conversation terminée.";
   if (portraitVoiceDrop && announcement.sessionId) {
     try {
       await sendPortraitDrop(announcement.sessionId);
@@ -435,12 +448,22 @@ async function concludeConversation(scores) {
   stopAutomatic();
   const snapshot = await scores;
   if (scoresRun !== run || openingSession || !finished) return;
-  const message = snapshot && !["failed", "simulated"].includes(snapshot.analysis_status)
+  const randomProfile = snapshot?.analysis_status === "random";
+  let message = snapshot && !["failed", "simulated"].includes(snapshot.analysis_status)
     ? "Voici à quoi ressemble votre profil psychologique sous forme visuelle."
     : "La synthèse n’est pas disponible pour cette conversation.";
-  finalAnnouncement = { message, sessionId: snapshot?.ready ? snapshot.session_id : undefined };
-  if (portraitVoiceDrop && finalAnnouncement.sessionId) void showPortraitReveal(finalAnnouncement.sessionId);
-  await announceResult(finalAnnouncement);
+  if (randomProfile) message = "Voici un profil de démonstration généré à partir de trois dimensions tirées au sort.";
+  const announcement = { message, sessionId: snapshot?.ready ? snapshot.session_id : undefined, randomProfile };
+  finalAnnouncement = announcement;
+  if (portraitVoiceDrop && announcement.sessionId) {
+    if (randomProfile) {
+      // Le profil peut être prêt avant que le lecteur soit à l’écoute sur OSC.
+      await new Promise((resolve) => showPortraitReveal(announcement.sessionId, resolve).then(resolve, resolve));
+    } else {
+      void showPortraitReveal(announcement.sessionId);
+    }
+  }
+  await announceResult(announcement);
 }
 
 function setBusy(value) {
@@ -470,10 +493,11 @@ async function start() {
   questionVoice.reset();
   setBusy(true);
   status.textContent = "Ouverture d’une nouvelle conversation…";
+  let scores;
   try {
-    const { opening, session_id, reasoning: showReasoning } = await openSession();
+    const { opening, session_id, reasoning: showReasoning, skip_interview: skipInterview } = await openSession();
     portraitRevealRequest?.abort();
-    portraitReveal.hidden = true;
+    portraitReveal.close();
     sessionId = session_id;
     reasoningRun++;
     scoresRun++;
@@ -490,19 +514,28 @@ async function start() {
     reasoningStatus.textContent = "";
     void refreshReasoning();
     pendingRequest = undefined;
-    history = [opening];
-    finished = false;
+    finished = Boolean(skipInterview);
+    history = finished ? [] : [opening];
     messages.replaceChildren();
-    const firstQuestion = append(opening, true);
-    questionVoice.setQuestion(opening.content);
-    revealMessage(firstQuestion);
     answer.value = "";
     status.textContent = "";
+    if (finished) {
+      scores = showFinalScores();
+    } else {
+      const firstQuestion = append(opening, true);
+      questionVoice.setQuestion(opening.content);
+      revealMessage(firstQuestion);
+    }
   } catch {
     status.textContent = "Impossible d’ouvrir une nouvelle session. Clique sur Recommencer pour réessayer.";
   } finally {
     openingSession = false;
     setBusy(false);
+  }
+  if (scores) {
+    const run = scoresRun;
+    await modeReady;
+    if (scoresRun === run) await concludeConversation(scores);
   }
 }
 
@@ -603,29 +636,40 @@ playResult.addEventListener("click", () => {
   if (finalAnnouncement) void announceResult(finalAnnouncement);
 });
 
+portraitFullscreen.addEventListener("click", enterPortraitFullscreen);
+document.querySelector("#portrait-close").addEventListener("click", () => portraitReveal.close());
+portraitReveal.addEventListener("close", () => {
+  if (portraitReveal.open) return;
+  portraitRevealRequest?.abort();
+  if (document.fullscreenElement === portraitScreen) void document.exitFullscreen().catch(() => {});
+  if (finished && !openingSession) scoresPanel.scrollIntoView({ block: "start" });
+});
+document.addEventListener("fullscreenchange", () => {
+  portraitFullscreen.hidden = !document.fullscreenEnabled || document.fullscreenElement === portraitScreen;
+});
+
 reset.addEventListener("click", async () => {
   await start();
   if (!finished) answer.focus({ preventScroll: true });
 });
-start();
-
-if (!demo) {
-  fetch("/api/conversation/mode")
+const modeReady = demo ? Promise.resolve() : fetch("/api/conversation/mode")
     .then((response) => response.json())
-    .then(({ model, azureSpeech, azureTranscription, auto, portraitPreview, portraitVoiceDrop: voiceDrop }) => {
+    .then(({ model, azureSpeech, azureTranscription, auto, skipInterview, portraitPreview, portraitVoiceDrop: voiceDrop }) => {
       questionVoice.setAzureVoice(azureSpeech);
       dictation.setAvailable(azureTranscription);
       portraitVoiceDrop = Boolean(voiceDrop);
       autoControls.hidden = !auto;
-      chatColumn.classList.toggle("auto-mode", Boolean(auto));
+      chatColumn.classList.toggle("auto-mode", Boolean(auto || skipInterview));
       if (auto && !dictation.supported) {
         autoStatus.textContent = "L’échange vocal requiert un navigateur compatible sur HTTPS ou localhost.";
       }
       updateAutoControls();
       if (portraitPreview) void showPortraitPreview();
-      document.querySelector("#mode").textContent = model ? "" : "Conversation simulée";
+      const mode = document.querySelector("#mode");
+      mode.textContent = model ? "" : "Conversation simulée";
+      if (skipInterview) mode.textContent = "Profil de démonstration";
     })
     .catch(() => {
       document.querySelector("#mode").textContent = "Serveur indisponible";
     });
-}
+void start();
