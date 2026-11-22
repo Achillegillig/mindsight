@@ -11,19 +11,18 @@ import tempfile
 from time import sleep
 
 if __package__:
-    from .mindsight_opengl import DEFAULT_STRANDS, IDLE, LABELS, VIDEO_DIRECTORY, Renderer, create_window, gl
+    from .mindsight_opengl import DEFAULT_STRANDS, IDLE, LABELS, Renderer, create_window, gl
+    from .portrait_soundtrack import REVEAL_HOLD, SOUNDTRACK_START, find_soundtrack
 else:
-    from mindsight_opengl import DEFAULT_STRANDS, IDLE, LABELS, VIDEO_DIRECTORY, Renderer, create_window, gl
+    from mindsight_opengl import DEFAULT_STRANDS, IDLE, LABELS, Renderer, create_window, gl
+    from portrait_soundtrack import REVEAL_HOLD, SOUNDTRACK_START, find_soundtrack
 
 from pyglet import graphics, shapes, text, window
 from pyglet.math import Mat4
 
 
 TURNS = (0.0, 1.0, 0.0, 1.0, 0.0)
-REVEAL_HOLD = 30.0
 REVEAL_DURATION = 80.0
-SOUNDTRACK_START = "00:14:40"
-AUDIO_EXTENSIONS = {".aac", ".flac", ".m4a", ".mp3", ".ogg", ".opus", ".wav"}
 
 
 def level_at_frame(frame, ramp_frames, hold_frames):
@@ -221,16 +220,7 @@ def soundtrack_for(args):
         if not args.soundtrack.is_file():
             raise FileNotFoundError(f"Piste audio introuvable. {args.soundtrack}")
         return args.soundtrack.resolve()
-    folders = (VIDEO_DIRECTORY / "soundtrack", VIDEO_DIRECTORY.parent / "soundtrack", VIDEO_DIRECTORY / "soundrack")
-    for folder in folders:
-        if not folder.is_dir():
-            continue
-        tracks = [track for track in folder.iterdir() if track.is_file() and track.suffix.lower() in AUDIO_EXTENSIONS]
-        if len(tracks) > 1:
-            raise ValueError(f"Plusieurs pistes dans {folder}. Choisis le fichier avec --soundtrack.")
-        if tracks:
-            return tracks[0].resolve()
-    raise FileNotFoundError("Place la piste dans videos/soundtrack ou indique son chemin avec --soundtrack.")
+    return find_soundtrack()
 
 
 def export(args, ffmpeg):
@@ -251,7 +241,7 @@ def export(args, ffmpeg):
             "-framerate", str(args.fps), "-i", "pipe:0",
         ]
         if soundtrack is not None:
-            command.extend(("-ss", SOUNDTRACK_START, "-i", str(soundtrack), "-map", "0:v:0", "-map", "1:a:0",
+            command.extend(("-ss", str(SOUNDTRACK_START), "-i", str(soundtrack), "-map", "0:v:0", "-map", "1:a:0",
                             "-c:a", "aac", "-b:a", "192k", "-af", "apad", "-shortest"))
         command.extend((
             "-vf", "vflip,scale=out_color_matrix=bt709:out_range=tv",

@@ -345,12 +345,15 @@ class ConversationService:
 
 
 class ConversationHandler(BaseHTTPRequestHandler):
-    def __init__(self, *args, service, speech=None, transcription=None, auto=False, on_session_created=None):
+    def __init__(self, *args, service, speech=None, transcription=None, auto=False,
+                 on_session_created=None, portrait_preview=None, portrait_drop=None):
         self.service = service
         self.speech = speech
         self.transcription = transcription
         self.auto = auto
         self.on_session_created = on_session_created
+        self.portrait_preview = portrait_preview
+        self.portrait_drop = portrait_drop
         super().__init__(*args)
 
     def send_content(self, status, content, media_type):
@@ -372,7 +375,18 @@ class ConversationHandler(BaseHTTPRequestHandler):
                 "azureSpeech": self.speech is not None,
                 "azureTranscription": self.transcription is not None,
                 "auto": self.auto,
+                "portraitPreview": self.portrait_preview is not None,
+                "portraitVoiceDrop": self.portrait_drop is not None,
             })
+        elif self.path == "/api/portrait/preview":
+            try:
+                preview = self.portrait_preview.read_bytes() if self.portrait_preview else None
+            except FileNotFoundError:
+                preview = None
+            if preview is None:
+                self.send_json(404, {"detail": "Aperçu du portrait indisponible."})
+            else:
+                self.send_content(200, preview, "image/png")
         elif self.path.startswith(f"{SESSION_PATH}/") and self.path.endswith("/scores"):
             session_id = self.path.removeprefix(f"{SESSION_PATH}/").removesuffix("/scores")
             try:
@@ -408,7 +422,7 @@ class ConversationHandler(BaseHTTPRequestHandler):
                 "session_id": session_id, "opening": OPENING, "reasoning": self.service.reasoning,
             })
             return
-        if self.path not in (TURN_PATH, SPEECH_PATH):
+        if self.path not in (TURN_PATH, SPEECH_PATH, "/api/portrait/drop"):
             self.send_json(404, {"detail": "Route introuvable."})
             return
         if self.headers.get_content_type() != "application/json":
@@ -424,6 +438,9 @@ class ConversationHandler(BaseHTTPRequestHandler):
             return
         if self.path == SPEECH_PATH:
             self.speak(payload)
+            return
+        if self.path == "/api/portrait/drop":
+            self.trigger_portrait_drop(payload)
             return
         try:
             messages = validate_messages(payload)
@@ -453,6 +470,27 @@ class ConversationHandler(BaseHTTPRequestHandler):
             self.send_json(502, {"detail": str(error)})
             return
         self.send_json(200, result)
+
+    def trigger_portrait_drop(self, payload):
+        session_id = payload.get("session_id") if isinstance(payload, dict) else None
+        if self.portrait_drop is None or not isinstance(session_id, str):
+            self.send_json(404, {"detail": "Révélation vocale indisponible."})
+            return
+        try:
+            scores = self.service.get_scores(session_id)
+        except KeyError:
+            self.send_json(404, {"detail": "Session introuvable."})
+            return
+        if not scores["ready"]:
+            self.send_json(409, {"detail": "Le profil final n’est pas prêt."})
+            return
+        try:
+            self.portrait_drop(session_id)
+        except OSError as error:
+            self.log_error("%s", error)
+            self.send_json(502, {"detail": "Le signal de révélation n’a pas pu être envoyé."})
+            return
+        self.send_json(200, {"ok": True})
 
     def transcribe_audio(self):
         if self.transcription is None:

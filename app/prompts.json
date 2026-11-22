@@ -1,7 +1,7 @@
 {
   "conversation": {
     "questions": [
-      "Si tu étais un caillou, tu serais quoi ?",
+      "Bonjour, je suis MindSight. Aujourd’hui, je vais vous poser une question existentielle.\nSi tu étais un caillou, tu serais quoi ?",
       "Sur quel sujet tu pourrais parler trois heures sans notes ?",
       "Tu repères une grosse erreur dans un projet de groupe, la veille du rendu. Quelle est la première chose que tu fais ?"
     ],
@@ -29,10 +29,10 @@
       "personne elle-même, comme « ça me soulage ». Une préférence, un souvenir, une",
       "émotion niée ou une propriété de la scène ne suffisent pas. En cas de doute,",
       "utilise un autre kind. Une image reste une image.",
-      "Pour une invention, un rapprochement ou une blague créés par le participant,",
+      "Pour une invention ou un rapprochement créés par le participant,",
       "le sujet est participant si l'observation porte sur le choix narratif lui-même.",
       "Privilégie les passages distinctifs : raisonnements, élans, initiatives sociales,",
-      "chutes humoristiques, conflits intérieurs, rêveries et associations originales.",
+      "conflits intérieurs, rêveries et associations originales.",
       "Les actions et ressentis du personnage restent attribués au personnage.",
       "Si aucun passage ne convient, observations est vide."
     ],
@@ -46,7 +46,7 @@
       "Pour une dimension, cite au moins une observation attribuée au participant et ancrée",
       "dans un vécu ou une déclaration. Si la fiche autorise la fiction (allow_fiction),",
       "tu peux aussi prendre en compte une création narrative du participant comme appui",
-      "indirect. Une invention ou une blague peut être frappante même si son appui est indirect.",
+      "indirect. Une invention peut être frappante même si son appui est indirect.",
       "Si allow_hypothetical_reasoning est vrai, un raisonnement que le participant développe",
       "lui-même dans une situation hypothétique est recevable pour ce critère.",
       "Le comportement d'un personnage ne permet pas de décrire le participant.",

@@ -16,7 +16,7 @@ onReceiveOSC avec la signature générée par la version installée. Le guide jo
 contient un callback prêt à coller. Si le .toe range les traits dans un autre
 réseau, adapte les chemins de destination en gardant les adresses OSC exactes.
 
-Branche ces onze adresses sur le paramètre personnalisé Intensite du composant
+Branche ces dix adresses sur le paramètre personnalisé Intensite du composant
 indiqué. Chacune reçoit un float OSC. Borne l’intensité entre 0.0 et 10.0.
 
 /trait/enthousiasme    → /trait_enthousiasme.Intensite
@@ -26,12 +26,11 @@ indiqué. Chacune reçoit un float OSC. Borne l’intensité entre 0.0 et 10.0.
 /trait/torture         → /trait_torture.Intensite
 /trait/bienveillance   → /trait_bienveillance.Intensite
 /trait/autocritique    → /trait_autocritique.Intensite
-/trait/humour          → /trait_humour.Intensite
 /trait/confiance_en_soi → /trait_confiance_en_soi.Intensite
 /trait/extraversion    → /trait_extraversion.Intensite
 /trait/impulsif        → /trait_impulsif.Intensite
 
-Accepte aussi /profil avec exactement 11 floats dans l’ordre de la liste.
+Accepte aussi /profil avec exactement 10 floats dans l’ordre de la liste.
 Valide toute la liste avant d’appliquer les valeurs. Ignore les adresses
 inconnues et les messages mal formés. Ajoute les commandes manuelles suivantes.
 
@@ -49,7 +48,7 @@ un export, repère la source existante avant de choisir où écrire.
 Utilise les dimensions d’app/dimensions.yaml pour les signaux MindSight.
 Le pont Python utilise --mapping visualization/mapping_traits.yaml pour
 émettre les seize adresses /trait/<dimension> sur l’échelle 0–10. Affiche le
-dernier score de chaque dimension dans /osc/dimensions. Les onze adresses
+dernier score de chaque dimension dans /osc/dimensions. Les dix adresses
 artistiques restent valides, dont /trait/torture et /trait/impulsif, qui
 partagent leurs curseurs avec /trait/angoisse et /trait/impulsivite.
 Les dimensions passionne, force_de_proposition, domination, introversion et
@@ -57,7 +56,7 @@ manque_de_confiance_en_soi ont une ligne dans la table. La scène ne contient
 pas de contrôle visuel dédié à ces cinq dimensions.
 
 Teste la réception depuis un émetteur OSC vers 127.0.0.1:9000. Envoie chaque
-adresse individuelle, puis /profil avec les onze valeurs 0.0 à 10.0 par pas
+adresse individuelle, puis /profil avec les dix valeurs 0.0 à 10.0 par pas
 de 1. Vérifie la ligne reçue dans /osc/osc_in, la valeur Intensite dans chaque
 composant et le curseur dans /controles. Envoie /trait/extraversion à 10.0 puis
 à 0.0 et contrôle que le fond de /composition/final passe du jaune au bleu-gris.

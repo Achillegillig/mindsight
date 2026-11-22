@@ -21,6 +21,11 @@ DEFAULT_OSC_PORT = 9000
 OSC_FLOAT_MAX = 3.4028234663852886e38
 
 
+def send_portrait_drop(port, session_id):
+    with SimpleUDPClient("127.0.0.1", port) as osc:
+        osc.send_message("/portrait/drop", session_id)
+
+
 def load_mapping(path):
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     channels = data.get("channels") if isinstance(data, dict) else None
@@ -108,6 +113,12 @@ def follow_portrait_sessions(mcp_url, osc_port, *, portrait_events=False):
             if closed:
                 return
             stop_process(process)
+            if portrait_events:
+                try:
+                    with SimpleUDPClient("127.0.0.1", osc_port) as osc:
+                        osc.send_message("/portrait/session", session_id)
+                except OSError as error:
+                    print(f"Annonce OSC de la session impossible : {error}", file=sys.stderr, flush=True)
             try:
                 command = [
                     sys.executable, "-X", "utf8", "-m", "visualization.mcp_to_osc",

@@ -1,4 +1,4 @@
-version: 5
+version: 6
 quantification:
   strategy: contrast
   weights: {direct: 5, indirect: 2}
@@ -32,16 +32,6 @@ dimensions:
       leger: Exprime un intérêt situé pour aller vers les autres.
       net: Raconte comment il a pris l'initiative d'un échange.
       frappant: Décrit une recherche marquée du contact et son rôle actif pour lancer ou animer des interactions.
-  - id: humour
-    family: Expression
-    label: Humour
-    definition: Produit un jeu de mots, une chute, un décalage comique ou de l'autodérision.
-    allow_fiction: true
-    exclusions: [Humour repris de la question, Rire ou emoji seul]
-    anchors:
-      leger: Introduit un décalage amusant discret.
-      net: Formule une blague ou une remarque d'autodérision qui se suffit à elle-même.
-      frappant: Développe un ressort comique distinctif avec une chute ou un changement de perspective.
   - id: torture
     family: Rapport à soi
     label: Torturé

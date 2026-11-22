@@ -8,9 +8,9 @@ from app.quantification import load_catalog, quantify_dimensions
 class QuantificationTests(unittest.TestCase):
     def test_catalog_lists_the_creative_session_traits(self):
         catalog = load_catalog()
-        self.assertEqual(catalog.version, 5)
+        self.assertEqual(catalog.version, 6)
         self.assertEqual([item["id"] for item in catalog.dimensions], [
-            "analytique", "enthousiasme", "extraversion", "humour", "torture",
+            "analytique", "enthousiasme", "extraversion", "torture",
             "reveur", "creativite",
         ])
 

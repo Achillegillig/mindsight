@@ -28,9 +28,11 @@ from pythonosc.dispatcher import Dispatcher  # noqa: E402
 
 if __package__:
     from .mcp_to_osc import DEFAULT_OSC_PORT, PORTRAIT_MAPPING_PATH, load_mapping
+    from .portrait_soundtrack import REVEAL_HOLD, SOUNDTRACK_DROP, SOUNDTRACK_START, VIDEO_DIRECTORY, find_soundtrack
     from .touchdesigner_osc_callbacks import ALIASES, TRAITS as OSC_PROFILE
 else:
     from mcp_to_osc import DEFAULT_OSC_PORT, PORTRAIT_MAPPING_PATH, load_mapping
+    from portrait_soundtrack import REVEAL_HOLD, SOUNDTRACK_DROP, SOUNDTRACK_START, VIDEO_DIRECTORY, find_soundtrack
     from touchdesigner_osc_callbacks import ALIASES, TRAITS as OSC_PROFILE
 
 
@@ -43,8 +45,9 @@ SAMPLES = 96
 DEFAULT_STRANDS = 256
 STEP = 1 / 60
 REVEAL_MORPH = 3.2
+VOICE_DROP_LEAD = 6.0
+VOICE_DROP_TIMEOUT = 15.0
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-VIDEO_DIRECTORY = PROJECT_ROOT / "videos"
 DEMO = (
     ("Repos", IDLE),
     *((label, tuple(float(i == j) for i in range(6))) for j, label in enumerate(LABELS)),
@@ -73,6 +76,7 @@ class OscInput:
         self.values = list(IDLE)
         self.session_id = None
         self.reveal_levels = None
+        self.drop_session = None
         self.dispatcher = Dispatcher(strict_timing=False)
         self.scales = {}
         self.indices = {name: i for i, name in enumerate(TRAITS)}
@@ -93,6 +97,7 @@ class OscInput:
         self.dispatcher.map("/profil", self.profile)
         self.dispatcher.map("/portrait/session", self.announce)
         self.dispatcher.map("/portrait/reveal", self.reveal)
+        self.dispatcher.map("/portrait/drop", self.arm_drop)
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             if sys.platform == "win32":
@@ -140,6 +145,10 @@ class OscInput:
         self.announce(address, session_id)
         if self.reveal_levels is None:
             self.reveal_levels = tuple(by_name[name] for name in TRAITS)
+
+    def arm_drop(self, address, session_id=None, *extra):
+        if not extra and isinstance(session_id, str) and re.fullmatch(r"[0-9a-f]{32}", session_id):
+            self.drop_session = session_id
 
     def poll(self):
         for _ in range(128):
@@ -190,6 +199,7 @@ uniform float dt;
 uniform float phase;
 uniform float seconds;
 uniform float portraitFlow;
+uniform float revealBurst;
 uniform int initialize;
 
 float pulse(float u, float cycle, float width) {
@@ -303,7 +313,7 @@ void main() {
         target += dream * residualGrain(id, lane) * drift;
     }
     if (portraitFlow < 1.0) {
-        float orbit = PI * (1.0 + u) + angle + 0.10 * phase;
+        float orbit = PI * (1.0 + u) + angle + 0.30 * phase;
         float ringRadius = 2.48 + 0.15 * (hash(lane + 14u) - 0.5)
             + 0.034 * sin(3.0 * orbit + 0.24 * phase + angle);
         vec3 circle = vec3(ringRadius * cos(orbit), ringRadius * sin(orbit),
@@ -317,6 +327,8 @@ void main() {
     vec3 velocity = initialize != 0 ? vec3(0.0) : velocitySpark.xyz;
     float spring = mix(10.0 + 3.0 * traits.y, 5.7, dream);
     velocity += (target - position) * (spring * dt);
+    vec3 burstDirection = normalize(vec3(position.xy + vec2(0.001, 0.0), 0.65 * grain.z));
+    velocity += burstDirection * revealBurst * (28.0 + 32.0 * hash(lane + 59u)) * dt;
     velocity *= exp(-dt * mix(4.6, 5.4, dream));
     float spark = traits.y * wave * (0.62 + 0.38 * sin(12.0 * seconds + 70.0 * hash(id + 7u)));
     nextPositionAge = vec4(position + velocity * dt, age);
@@ -654,6 +666,7 @@ class Renderer:
         self.strands = strands
         self.levels = list(levels)
         self.flow = flow
+        self.burst = 0.0
         self.seconds = 0.0
         self.phase = 0.0
         self.accumulator = 0.0
@@ -701,6 +714,7 @@ class Renderer:
         program.set("phase", self.phase)
         program.set("seconds", self.seconds)
         program.set("portraitFlow", float(self.flow))
+        program.set("revealBurst", self.burst)
         program.set("initialize", int(initialize))
         gl.glBindVertexArray(self.vaos[self.current])
         gl.glBindBufferBase(gl.GL_TRANSFORM_FEEDBACK_BUFFER, 0, self.buffers[destination])
@@ -715,11 +729,13 @@ class Renderer:
     def reset_circle(self):
         self.levels[:] = IDLE
         self.accumulator = self.seconds = self.phase = self.flow = 0.0
+        self.burst = 0.0
         self.simulate(0.0, initialize=True)
 
     def advance_reveal(self, dt, elapsed, profile):
         progress = min(1.0, max(0.0, elapsed / REVEAL_MORPH))
         self.flow = progress * progress * (3.0 - 2.0 * progress)
+        self.burst = exp(-5.0 * elapsed) if elapsed >= 0.0 else 0.0
         self.advance(dt, profile if progress > 0.0 else IDLE)
 
     def advance(self, elapsed, target):
@@ -743,7 +759,7 @@ class Renderer:
             raise RuntimeError("Le tampon OpenGL de composition linéaire est incomplet.")
         self.size = (width, height)
 
-    def draw(self, width, height, *, yaw=0.14, pitch=0.18):
+    def draw(self, width, height, *, yaw=0.14, pitch=0.18, background=None):
         if width <= 0 or height <= 0:
             return
         # Lier l’unité de texture explicitement, y compris après un redimensionnement.
@@ -751,7 +767,8 @@ class Renderer:
         self.resize(width, height)
         gl.glViewport(0, 0, width, height)
         gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, self.framebuffer)
-        background = background_rgb(self.levels[5])
+        if background is None:
+            background = background_rgb(self.levels[5])
         gl.glClearColor(*(linear_channel(channel) for channel in background), 1.0)
         gl.glClear(gl.GL_COLOR_BUFFER_BIT)
         gl.glBindVertexArray(self.vaos[self.current])
@@ -805,7 +822,7 @@ def create_window(width, height, *, visible=True, vsync=True):
 
 
 class Portrait:
-    def __init__(self, window, renderer, port, *, mode, fixed):
+    def __init__(self, window, renderer, port, *, mode, fixed, hide_while_waiting=False, voice_drop=False):
         self.window = window
         self.renderer = renderer
         self.port = port
@@ -813,6 +830,10 @@ class Portrait:
         self.mode = mode
         self.live_mode = "reveal" if mode == "reveal" else "live"
         self.reveal_session = self.reveal_profile = None
+        self.hide_while_waiting = hide_while_waiting
+        self.voice_drop = voice_drop
+        self.music = None
+        self.reveal_elapsed = None
         self.exported_sessions = set()
         self.exports = []
         self.fixed = list(fixed)
@@ -826,6 +847,64 @@ class Portrait:
 
     def on_draw(self):
         self.renderer.draw(*self.window.get_framebuffer_size())
+
+    def stop_music(self):
+        if self.music is not None:
+            self.music.delete()
+            self.music = None
+
+    def present_reveal(self):
+        self.window.set_visible(True)
+        self.window.set_fullscreen(True)
+        self.window.activate()
+        player = None
+        try:
+            soundtrack = pyglet.media.load(str(find_soundtrack()))
+            if soundtrack.duration is not None and soundtrack.duration <= SOUNDTRACK_DROP:
+                raise ValueError("La piste se termine avant le drop à 15 min 10 s.")
+            player = pyglet.media.Player()
+            player.queue(soundtrack)
+            if self.voice_drop:
+                player.volume = 0.28
+            player.seek(SOUNDTRACK_DROP - VOICE_DROP_LEAD if self.voice_drop else SOUNDTRACK_START)
+            if not self.paused:
+                player.play()
+            self.music = player
+        except Exception as error:
+            if player is not None:
+                player.delete()
+            print(f"Portrait sans musique : {error}", file=sys.stderr, flush=True)
+
+    def seek_reveal_music(self, timestamp, *, drop=False):
+        try:
+            self.music.seek(timestamp)
+            if drop:
+                self.music.volume = 1.0
+        except Exception as error:
+            self.stop_music()
+            print(f"Resynchronisation de la musique impossible : {error}", file=sys.stderr, flush=True)
+
+    def advance_portrait_reveal(self, dt, target):
+        if self.reveal_elapsed is None:
+            music = self.music if self.music is not None and self.music.source is not None else None
+            if self.voice_drop:
+                if self.osc.drop_session == self.reveal_session or self.mode_seconds >= VOICE_DROP_TIMEOUT:
+                    if music is not None:
+                        self.seek_reveal_music(SOUNDTRACK_DROP, drop=True)
+                    self.reveal_elapsed = 0.0
+                elif music is not None and music.time >= SOUNDTRACK_DROP - 0.12:
+                    self.seek_reveal_music(SOUNDTRACK_DROP - 2.0)
+            else:
+                elapsed = music.time - SOUNDTRACK_DROP if music is not None else self.mode_seconds - REVEAL_HOLD
+                if elapsed >= 0.0:
+                    self.reveal_elapsed = elapsed
+        else:
+            self.reveal_elapsed += dt
+
+        if self.reveal_elapsed is None:
+            self.renderer.advance(dt, IDLE)
+        else:
+            self.renderer.advance_reveal(dt, self.reveal_elapsed, target)
 
     def title_and_target(self):
         if self.mode == "reveal":
@@ -847,10 +926,17 @@ class Portrait:
     def sync_reveal(self):
         session, profile = self.osc.session_id, self.osc.reveal_levels
         if self.mode == "reveal" and (session, profile) != (self.reveal_session, self.reveal_profile):
-            if session != self.reveal_session:
-                self.renderer.reset_circle()
+            self.stop_music()
+            self.renderer.reset_circle()
             self.reveal_session, self.reveal_profile = session, profile
             self.mode_seconds = 0.0
+            self.reveal_elapsed = None
+            if profile is not None:
+                self.present_reveal()
+            elif self.hide_while_waiting:
+                if self.window.fullscreen:
+                    self.window.set_fullscreen(False)
+                self.window.set_visible(False)
         self.exports = [process for process in self.exports if process.poll() is None]
         if profile is None or session in self.exported_sessions:
             return
@@ -884,17 +970,28 @@ class Portrait:
             self.caption = caption
         if not self.paused:
             if self.mode == "reveal":
-                elapsed = self.mode_seconds if self.reveal_profile is not None else 0.0
-                self.renderer.advance_reveal(dt, elapsed, target)
+                if self.reveal_profile is not None:
+                    self.advance_portrait_reveal(dt, target)
+                elif not self.hide_while_waiting:
+                    self.renderer.advance(dt, IDLE)
             else:
                 self.renderer.flow = 1.0
+                self.renderer.burst = 0.0
                 self.renderer.advance(dt, target)
 
     def on_key_press(self, symbol, modifiers):
         if symbol == key.F:
             self.window.set_fullscreen(not self.window.fullscreen)
+        elif symbol == key.ESCAPE and self.window.fullscreen:
+            self.window.set_fullscreen(False)
+            return pyglet.event.EVENT_HANDLED
         elif symbol == key.SPACE:
             self.paused = not self.paused
+            if self.music is not None:
+                if self.paused:
+                    self.music.pause()
+                else:
+                    self.music.play()
         elif symbol == key.L:
             if self.osc is None:
                 try:
@@ -919,6 +1016,7 @@ class Portrait:
             self.fixed[self.selected] = min(10, max(0, value)) / 10
 
     def close(self):
+        self.stop_music()
         if self.osc is not None:
             self.osc.close()
 
@@ -941,6 +1039,8 @@ def main():
     modes.add_argument("--demo", action="store_true", help="Enchaîner les traits isolés et les compositions.")
     modes.add_argument("--trait", action="append", type=trait_assignment, help="Fixer un trait sur 10. Option répétable.")
     modes.add_argument("--session-reveal", action="store_true", help="Attendre le profil final et exporter sa révélation.")
+    parser.add_argument("--preview-image", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--voice-drop", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--osc-port", type=int, default=DEFAULT_OSC_PORT, help="Port UDP local du pont MindSight.")
     parser.add_argument("--strands", type=int, default=DEFAULT_STRANDS,
                         help=f"Nombre de filaments de {SAMPLES} particules (défaut : {DEFAULT_STRANDS}).")
@@ -954,9 +1054,19 @@ def main():
     mode = "demo" if args.demo else "manual" if args.trait else "reveal" if args.session_reveal else "live"
     window = renderer = portrait = None
     try:
-        window = create_window(1360, 820)
+        window = create_window(1360, 820, visible=args.preview_image is None)
         renderer = Renderer(args.strands, levels, flow=0.0 if args.session_reveal else 1.0)
-        portrait = Portrait(window, renderer, args.osc_port, mode=mode, fixed=levels)
+        if args.preview_image is not None:
+            renderer.draw(*window.get_framebuffer_size(), background=(240 / 255, 238 / 255, 232 / 255))
+            gl.glReadBuffer(gl.GL_BACK)
+            preview = args.preview_image.with_suffix(".tmp.png")
+            pyglet.image.get_buffer_manager().get_color_buffer().save(str(preview))
+            preview.replace(args.preview_image)
+        portrait = Portrait(
+            window, renderer, args.osc_port, mode=mode, fixed=levels,
+            hide_while_waiting=args.preview_image is not None,
+            voice_drop=args.voice_drop,
+        )
         pyglet.clock.schedule(portrait.update)
         pyglet.app.run()
     except (OSError, RuntimeError, pyglet.window.WindowException, gl.GLException) as error:

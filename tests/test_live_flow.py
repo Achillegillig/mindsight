@@ -114,7 +114,6 @@ class LiveFlowTests(unittest.TestCase):
             {"id": "creativite", "appui": 0.75, "contre_appui": 0.5},
             {"id": "analytique", "appui": 0.25},
             {"id": "enthousiasme", "appui": 0.5},
-            {"id": "humour", "appui": 1.0},
             {"id": "torture", "appui": 0.8},
             {"id": "extraversion", "appui": None},
         ]}
@@ -129,7 +128,6 @@ class LiveFlowTests(unittest.TestCase):
             ("/trait/analytique", [2.5]),
             ("/trait/enthousiasme", [5.0]),
             ("/trait/extraversion", [0.0]),
-            ("/trait/humour", [10.0]),
             ("/trait/torture", [8.0]),
             ("/trait/reveur", [0.0]),
             ("/trait/creativite", [7.5]),
@@ -366,8 +364,8 @@ class LiveFlowTests(unittest.TestCase):
             scores = {trait["id"]: trait for trait in result["traits"]}
             self.assertEqual(scores["reveur"]["score"], 2)
             self.assertEqual(scores["reveur"]["episode_count"], 1)
-            self.assertEqual(scores["humour"]["score"], 0)
-            self.assertEqual(scores["humour"]["status"], "sans_indice")
+            self.assertEqual(scores["enthousiasme"]["status"], "sans_indice")
+            self.assertEqual(scores["enthousiasme"]["score"], 0)
 
     def test_simulated_session_allows_two_followups_per_question(self):
         with ConversationService(load_catalog()) as service:

@@ -27,6 +27,9 @@ let reasoningRun = 0;
 let scoresRun = 0;
 let busy = false;
 let autoRun;
+let portraitVoiceDrop = false;
+let openingSession = false;
+let turnRequest;
 const demo = document.querySelector("#demo-data");
 const dictation = demo ? null : createDictation(answer, send, questionVoice);
 
@@ -51,6 +54,40 @@ function textElement(tag, text) {
   const element = document.createElement(tag);
   element.textContent = text;
   return element;
+}
+
+async function showPortraitPreview() {
+  const preview = document.querySelector("#portrait-preview");
+  const image = preview.querySelector("img");
+  for (let attempt = 0; attempt < 20; attempt++) {
+    try {
+      const response = await fetch("/api/portrait/preview", { cache: "no-store" });
+      if (response.ok) {
+        const url = URL.createObjectURL(await response.blob());
+        image.src = url;
+        try {
+          await image.decode();
+          preview.hidden = false;
+          page.classList.add("with-portrait");
+          return;
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      }
+    } catch {
+      // OpenGL peut encore être en train de préparer la première image.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+
+async function sendPortraitDrop(id) {
+  const response = await fetch("/api/portrait/drop", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: id }),
+  });
+  if (!response.ok) throw new Error("Signal du portrait indisponible.");
 }
 
 function renderReasoningTurn(turn, labels) {
@@ -230,7 +267,7 @@ async function openSession() {
   return response.json();
 }
 
-async function getReply(messages) {
+async function getReply(messages, signal) {
   if (demo) {
     const { questions, replies, closing, skipPattern } = JSON.parse(demo.textContent);
     const assistantMessages = messages.filter(({ role }) => role === "assistant");
@@ -246,6 +283,7 @@ async function getReply(messages) {
   const response = await fetch("/api/conversation/turn", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    signal,
     body: JSON.stringify({
       messages,
       session_id: sessionId,
@@ -309,41 +347,29 @@ async function askAutomatically(run, question) {
   else stopAutomatic("Échange vocal arrêté. Tu peux le relancer ou écrire ta réponse.");
 }
 
-function spokenResults(snapshot) {
-  if (!snapshot || ["failed", "simulated"].includes(snapshot.analysis_status)) {
-    return ["La synthèse des traits n’est pas disponible pour cette conversation."];
-  }
-  const traits = snapshot.traits.filter((trait) => trait.episode_count > 0)
-    .sort((left, right) => right.score - left.score);
-  if (!traits.length) return ["Aucun indice suffisant n’a été retenu pour les traits analysés."];
-  const intro = snapshot.analysis_status === "partial"
-    ? "L’analyse est partielle. Voici les traits pour lesquels des indices ont été relevés."
-    : "Voici les traits pour lesquels des indices ont été relevés dans cet échange.";
-  const clips = [intro];
-  for (const trait of traits) {
-    const sentence = `${trait.label}, ${formatNumber.format(trait.score)} sur 10.`;
-    if (clips.at(-1).length + sentence.length + 1 > 450) clips.push(sentence);
-    else clips[clips.length - 1] += ` ${sentence}`;
-  }
-  return clips;
-}
-
-async function concludeAutomatically(run, closing, scores) {
-  autoStatus.textContent = "MindSight termine l’échange…";
-  if (!await playAutomatically(run, closing)) return;
+async function concludeAutomatically(run, scores) {
   autoStatus.textContent = "Préparation de la synthèse…";
   const snapshot = await scores;
   if (autoRun !== run) return;
-  autoStatus.textContent = "MindSight lit la synthèse…";
-  for (const clip of spokenResults(snapshot)) {
-    if (!await playAutomatically(run, clip)) return;
+  const message = snapshot && !["failed", "simulated"].includes(snapshot.analysis_status)
+    ? "Voici à quoi ressemble votre profil psychologique sous forme visuelle."
+    : "La synthèse n’est pas disponible pour cette conversation.";
+  if (!await playAutomatically(run, message)) return;
+  if (portraitVoiceDrop && snapshot?.ready) {
+    try {
+      await sendPortraitDrop(snapshot.session_id);
+    } catch {
+      if (autoRun === run) stopAutomatic("Le portrait se déclenchera automatiquement dans quelques secondes.");
+      return;
+    }
   }
+  if (autoRun !== run) return;
   stopAutomatic("Échange vocal terminé.");
 }
 
 function setBusy(value) {
   busy = value;
-  reset.disabled = busy;
+  reset.disabled = openingSession;
   form.hidden = finished;
   answer.readOnly = busy || finished;
   send.disabled = busy || finished || history.length === 0;
@@ -352,11 +378,20 @@ function setBusy(value) {
 }
 
 async function start() {
+  if (openingSession) return;
+  openingSession = true;
+  if (turnRequest) {
+    turnRequest.controller.abort();
+    turnRequest.submitted.remove();
+    turnRequest.waiting.remove();
+    answer.value = turnRequest.draft;
+    turnRequest = undefined;
+  }
   stopAutomatic();
   dictation?.cancel();
   questionVoice.reset();
   setBusy(true);
-  status.textContent = "";
+  status.textContent = "Ouverture d’une nouvelle conversation…";
   try {
     const { opening, session_id, reasoning: showReasoning } = await openSession();
     sessionId = session_id;
@@ -381,9 +416,11 @@ async function start() {
     append(opening, true);
     questionVoice.setQuestion(opening.content);
     answer.value = "";
+    status.textContent = "";
   } catch {
-    status.textContent = "Impossible de charger la question. Clique sur Recommencer pour réessayer.";
+    status.textContent = "Impossible d’ouvrir une nouvelle session. Clique sur Recommencer pour réessayer.";
   } finally {
+    openingSession = false;
     setBusy(false);
   }
 }
@@ -397,10 +434,12 @@ answer.addEventListener("keydown", (event) => {
 });
 
 async function submitAnswer() {
-  const content = answer.value.trim();
+  const draft = answer.value;
+  const content = draft.trim();
   if (!content || send.disabled || dictation?.active) return;
 
   const run = autoRun;
+  const controller = new AbortController();
   let next;
   const userMessage = { role: "user", content };
   if (!demo && pendingRequest?.content !== content) {
@@ -409,12 +448,17 @@ async function submitAnswer() {
   setBusy(true);
   status.textContent = "";
   const submitted = append(userMessage);
+  answer.value = "";
+  dictation?.cancel();
   const waiting = textElement("li", "MindSight prépare la suite…");
   waiting.className = "waiting";
   messages.append(waiting);
+  const request = { controller, submitted, waiting, draft };
+  turnRequest = request;
   waiting.scrollIntoView({ block: "nearest" });
   try {
-    const { reply, done } = await getReply([...history, userMessage]);
+    const { reply, done } = await getReply([...history, userMessage], controller.signal);
+    if (controller.signal.aborted) return;
     finished = done;
     const assistantMessage = { role: "assistant", content: reply };
     history.push(userMessage, assistantMessage);
@@ -424,25 +468,29 @@ async function submitAnswer() {
     const response = append(assistantMessage, !done);
     if (done) {
       const scores = showFinalScores();
-      if (run && autoRun === run) next = () => concludeAutomatically(run, reply, scores);
+      if (run && autoRun === run) next = () => concludeAutomatically(run, scores);
     } else {
       questionVoice.setQuestion(reply);
       if (run && autoRun === run) next = () => askAutomatically(run, reply);
     }
     void refreshReasoning((history.length - 1) / 2);
-    answer.value = "";
     status.textContent = finished ? "Conversation terminée." : "";
     response.scrollIntoView({ block: "nearest" });
   } catch (error) {
+    if (controller.signal.aborted) return;
     if (run && autoRun === run) stopAutomatic("Échange vocal arrêté. Tu peux renvoyer ta réponse.");
     submitted.remove();
     waiting.remove();
+    answer.value = draft;
     status.textContent = error instanceof TypeError || !error.message
       ? "La relance a échoué. Ta réponse est conservée."
       : error.message + " Ta réponse est conservée.";
   } finally {
-    setBusy(false);
-    if (!finished && !autoRun) answer.focus({ preventScroll: true });
+    if (turnRequest === request) {
+      turnRequest = undefined;
+      setBusy(false);
+      if (!finished && !autoRun) answer.focus({ preventScroll: true });
+    }
   }
   if (next) void next();
 }
@@ -479,14 +527,17 @@ start();
 if (!demo) {
   fetch("/api/conversation/mode")
     .then((response) => response.json())
-    .then(({ model, azureSpeech, azureTranscription, auto }) => {
+    .then(({ model, azureSpeech, azureTranscription, auto, portraitPreview, portraitVoiceDrop: voiceDrop }) => {
       questionVoice.setAzureVoice(azureSpeech);
       dictation.setAvailable(azureTranscription);
+      portraitVoiceDrop = Boolean(voiceDrop);
       autoControls.hidden = !auto;
+      chatColumn.classList.toggle("auto-mode", Boolean(auto));
       if (auto && !dictation.supported) {
         autoStatus.textContent = "L’échange vocal requiert un navigateur compatible sur HTTPS ou localhost.";
       }
       updateAutoControls();
+      if (portraitPreview) void showPortraitPreview();
       document.querySelector("#mode").textContent = model ? "" : "Conversation simulée";
     })
     .catch(() => {

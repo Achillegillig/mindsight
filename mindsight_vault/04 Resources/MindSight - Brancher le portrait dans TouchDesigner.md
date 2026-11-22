@@ -15,9 +15,9 @@ Chaque trait a un curseur `Intensite` de `0.0` à `10.0`. Le réseau visuel inte
 
 Commence avec les deux programmes sur le même ordinateur. Pour un montage sur deux machines, laisse **Local Address** vide ou indique l’IP locale de la machine TouchDesigner. Passe cette même IP au pont via `--osc-host`. Autorise la réception UDP `9000` dans le pare-feu de cette machine si nécessaire.
 
-## 2. Brancher les onze adresses
+## 2. Brancher les dix adresses
 
-Chaque adresse reçoit un float OSC compris entre `0.0` et `10.0`. Le préréglage `visualization/mapping_traits.yaml` émet les seize dimensions d’`app/dimensions.yaml`. Le récepteur conserve les onze adresses historiques dans la première colonne. La colonne **Dimension MindSight** donne la source et, si le nom diffère, son adresse OSC canonique.
+Chaque adresse reçoit un float OSC compris entre `0.0` et `10.0`. Le préréglage `visualization/mapping_traits.yaml` émet les six dimensions d’`app/dimensions.yaml`. Le récepteur conserve les dix adresses historiques dans la première colonne. La colonne **Dimension MindSight** donne la source et, si le nom diffère, son adresse OSC canonique.
 
 | Adresse OSC historique | Paramètre `Intensite` du composant | Effet dans l’image | Dimension MindSight |
 | --- | --- | --- | --- |
@@ -28,7 +28,6 @@ Chaque adresse reçoit un float OSC compris entre `0.0` et `10.0`. Le prérégla
 | `/trait/torture` | `/trait_torture` | Lignes accidentées et coups de pinceau au premier plan | `angoisse` via `/trait/angoisse` |
 | `/trait/bienveillance` | `/trait_bienveillance` | Densité des flocons et de la neige déposée | `bienveillance` |
 | `/trait/autocritique` | `/trait_autocritique` | Étirement, torsion et ondulation | `autocritique` |
-| `/trait/humour` | `/trait_humour` | Gonflements et sauts rythmés | `humour` |
 | `/trait/confiance_en_soi` | `/trait_confiance_en_soi` | Bord du cadre, du fondu au net | `confiance_en_soi` |
 | `/trait/extraversion` | `/trait_extraversion` | Fond bleu-gris à `0`, ocre à `5` et jaune à `10` | `extraversion` |
 | `/trait/impulsif` | `/trait_impulsif` | Durée, flou et flashs de l’apparition | `impulsivite` via `/trait/impulsivite` |
@@ -39,16 +38,16 @@ Les valeurs reçues sont visibles dans `/osc/dimensions`. Les canaux `/trait/pas
 
 | Adresse | Arguments OSC | Effet |
 | --- | --- | --- |
-| `/profil` | 11 floats de `0.0` à `10.0`, dans l’ordre du tableau | Applique toutes les intensités dans un seul callback. |
+| `/profil` | 10 floats de `0.0` à `10.0`, dans l’ordre du tableau | Applique toutes les intensités dans un seul callback. |
 | `/trait/impulsif/rejouer` | Un entier `1` | Appelle `rejouer()` dans `/trait_impulsif/apparition`. |
 | `/trait/impulsif/boucle` | Un entier `0` ou `1` | Règle `Boucle`. À `1`, l’apparition repart toutes les 12 s. |
 | `/finition/force` | Un float de `0.0` à `1.0` | Règle la quantité de matière picturale via `/finition` → `Force`. |
 
-L’ordre de `/profil` est `enthousiasme`, `reveur`, `creativite`, `analytique`, `torture`, `bienveillance`, `autocritique`, `humour`, `confiance_en_soi`, `extraversion`, `impulsif`. Le pont MindSight utilise des messages individuels. Les commandes de ce tableau sont disponibles pour une répétition ou une régie manuelle.
+L’ordre de `/profil` est `enthousiasme`, `reveur`, `creativite`, `analytique`, `torture`, `bienveillance`, `autocritique`, `confiance_en_soi`, `extraversion`, `impulsif`. Le pont MindSight utilise des messages individuels. Les commandes de ce tableau sont disponibles pour une répétition ou une régie manuelle.
 
 ## 3. Vérifier ou recréer le récepteur
 
-Dans le **Network Editor**, remonte à la racine `/`, puis entre dans le **Base COMP** `osc`. Sélectionne `osc_in` et appuie sur **P** pour voir ses paramètres. Dans **Connect**, vérifie **Active** sur On, **Protocol** sur **Messaging (UDP)**, **Port** sur `9000` et **Local Address** sur `127.0.0.1` pour un test local. Dans **Received Messages**, vérifie **OSC Address Scope** sur `*`, **Callbacks DAT** sur `osc_in_callbacks` et **Maximum Lines** sur `100` pour conserver des lots complets de 16 messages. [OSC In DAT](https://docs.derivative.ca/OSC_In_DAT)
+Dans le **Network Editor**, remonte à la racine `/`, puis entre dans le **Base COMP** `osc`. Sélectionne `osc_in` et appuie sur **P** pour voir ses paramètres. Dans **Connect**, vérifie **Active** sur On, **Protocol** sur **Messaging (UDP)**, **Port** sur `9000` et **Local Address** sur `127.0.0.1` pour un test local. Dans **Received Messages**, vérifie **OSC Address Scope** sur `*`, **Callbacks DAT** sur `osc_in_callbacks` et **Maximum Lines** sur `100` pour conserver des lots complets de six messages. [OSC In DAT](https://docs.derivative.ca/OSC_In_DAT)
 
 Pour réinstaller le récepteur depuis le fichier original, ouvre `NewProject.2.toe` dans TouchDesigner puis **Dialogs → Textport and DATs** en mode Python. Charge le script d’installation avec `run_path`. Adapte le chemin si le dépôt est ailleurs et choisis un autre nom de sortie si le fichier livré existe déjà. [Script d’installation](../../visualization/setup_touchdesigner_osc.py)
 
@@ -82,7 +81,7 @@ python3.12 -m venv .venv
 
 1. Dans le panneau du nœud `/osc/osc_in`, vérifie qu’une ligne contient `/trait/extraversion` et `10.0`. Elle confirme la réception UDP.
 2. Ouvre **Dialogs → Textport and DATs**. `op('/trait_extraversion').par.Intensite.eval()` doit renvoyer `10.0`. Vérifie aussi le curseur dans `/controles`. Ouvre le viewer de `/composition/final` pour voir le fond jaune, puis renvoie la même commande avec `0.0` pour retrouver le bleu-gris. [Textport](https://docs.derivative.ca/Textport)
-3. Pour contrôler l’ordre des onze traits, envoie `/profil` avec `[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]` comme deuxième argument de `send_message`. Dans `/controles`, compare les valeurs avec le tableau des adresses. Tu peux aussi tester chaque adresse seule en remplaçant `/trait/extraversion` par son nom dans la commande.
+3. Pour contrôler l’ordre des dix traits, envoie `/profil` avec `[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]` comme deuxième argument de `send_message`. Dans `/controles`, compare les valeurs avec le tableau des adresses. Tu peux aussi tester chaque adresse seule en remplaçant `/trait/extraversion` par son nom dans la commande.
 
 | Symptôme | À vérifier |
 | --- | --- |
@@ -118,7 +117,7 @@ Ajoute `--once` pour un envoi de test. Si le terminal de MindSight affiche une a
 ```text
 /composition/out1  (rêveur → analytique → créativité → enthousiasme → torturé)
         ↓
-trait_bienveillance → trait_autocritique → trait_humour
+trait_bienveillance → trait_autocritique
         ↓
 trait_confiance_en_soi  (fond de trait_extraversion et bord du cadre)
         ↓
@@ -204,16 +203,6 @@ Les tables reprennent les valeurs de référence du fichier de l’artiste. Les 
 | torsion | 0 | 0.6 | 1.4 | tourbillon (radians) |
 | etirement | 0 | 0.12 | 0.3 | étirement directionnel |
 | *constantes* |  |  |  | cycle 6 s, échelle 2.5 |
-
-### Humour (`/trait_humour`)
-
-| Paramètre | 0 | 5 | 10 | Rôle |
-| --- | --- | --- | --- | --- |
-| enflure | 0 | 0.06 | 0.14 | gonflement |
-| saut | 0 | 0.015 | 0.035 | hauteur des sauts |
-| rotation | 0 | 0.015 | 0.04 | bascule (radians) |
-| coups | 0 | 3 | 6 | « ha » par éclat |
-| *constantes* |  |  |  | période 3,5 s, 5,5 ha/s |
 
 ### Confiance en soi (`/trait_confiance_en_soi`)
 

@@ -14,11 +14,6 @@ channels:
     address: /trait/extraversion
     idle: 0.0
     scale: 10.0
-  - dimension: humour
-    signal: appui
-    address: /trait/humour
-    idle: 0.0
-    scale: 10.0
   - dimension: torture
     signal: appui
     address: /trait/torture

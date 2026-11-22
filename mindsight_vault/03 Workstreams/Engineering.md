@@ -144,7 +144,7 @@ Le chat, le journal et le flux MCP reçoivent le calcul après chaque tour
 analysé. Le signal `appui` vaut `score / 10` pour les consommateurs du
 flux existant. L’introversion et l’absence de confiance en soi
 demandent leurs propres indices. Les choix narratifs fictifs peuvent apporter
-un appui indirect pour la créativité, l’humour et la rêverie.
+un appui indirect pour la créativité et la rêverie.
 
 ## Architecture et raccord à TouchDesigner
 
@@ -214,12 +214,12 @@ d’analyse, `ready` vaut `false` et `traits` est vide.
 ```json
 {
   "session_id": "identifiant-de-session",
-  "catalog_version": 4,
+  "catalog_version": 6,
   "through_turn": 4,
   "analysis_status": "ready",
   "ready": true,
   "traits": [
-    {"id": "humour", "label": "Humour", "score": 2, "status": "documentee"}
+    {"id": "creativite", "label": "Créativité", "score": 2, "status": "documentee"}
   ]
 }
 ```

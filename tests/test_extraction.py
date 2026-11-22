@@ -78,7 +78,7 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(answer[item["start"]:item["end"]], item["quote"])
 
     def test_fiction_counts_for_narrative_traits_without_inferring_a_personal_trait(self):
-        answer = "Un pigeon commenterait chaque miette comme une finale."
+        answer = "Un pigeon inventerait un moulin qui se nourrit de miettes et souffle du vent."
         result = self.analyze(
             answer,
             json.dumps({"observations": [
@@ -87,14 +87,14 @@ class ExtractionTests(unittest.TestCase):
                  "mode": "fiction", "subject": "personnage"},
             ]}),
             json.dumps({"dimensions": [
-                link(dimension_id="humour"),
+                link(dimension_id="creativite"),
                 link(dimension_id="extraversion"),
                 link(dimension_id="creativite", observation_ids=["o2"]),
             ]}),
         )
         self.assertEqual(
             [(item["dimension_id"], item["strength"], item["intensity"]) for item in result["dimensions"]],
-            [("humour", "indirect", "frappant")],
+            [("creativite", "indirect", "frappant")],
         )
 
     def test_empty_observations_skip_model_and_keep_empty_dimensions(self):

@@ -4,7 +4,7 @@ from math import isfinite
 
 TRAITS = (
     "enthousiasme", "reveur", "creativite", "analytique", "torture",
-    "bienveillance", "autocritique", "humour", "confiance_en_soi",
+    "bienveillance", "autocritique", "confiance_en_soi",
     "extraversion", "impulsif",
 )
 ALIASES = {"torture": "angoisse", "impulsif": "impulsivite"}
@@ -28,6 +28,9 @@ def _cible(chemin, nom):
 
 
 def _profil(table, args):
+    if len(args) == 11:
+        # Ignore l’ancien huitième canal dans les profils déjà enregistrés.
+        args = (*args[:7], *args[8:])
     if len(args) != len(TRAITS):
         return
     valeurs = [_borne(valeur, 10.0) for valeur in args]
